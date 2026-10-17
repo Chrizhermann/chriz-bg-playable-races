@@ -22,7 +22,8 @@ comes later.
   save made before the install. It works once and for good: hobgoblin sprite, race
   HOBGOBLIN, then the ability is gone.
 - The inventory shows the hobgoblin as the paperdoll figure.
-- A hobgoblin voice from the game's own hobgoblin lines: choose **Hobgoblin** under
+- A hobgoblin voice from the game's ten hobgoblin clips, each on the event it fits
+  (orders and moving, battle cries, selection, hit, death, ...): choose **Hobgoblin** under
   Record > Customize > Voice.
 - The sprite follows the active weapon. For now every melee weapon is drawn as a sword
   and every bow or crossbow as a bow. Fists and slings show no weapon, and two-handed
@@ -43,7 +44,9 @@ Verified in the lab on 2026-10-17 and 2026-10-18:
 - The record screen showed the race HOBGOBLIN, and the inventory the hobgoblin figure the
   installer builds.
 - **Hobgoblin** was listed under Record > Customize > Voice. Choosing it gave the
-  protagonist the voice set's lines.
+  protagonist the twelve lines of the voice table. Every selection and every move order
+  played a line; attack orders played a battle cry now and then, as the companions'
+  battle cries do. (Checked through subtitles: the lab runs without sound.)
 - Saving and reloading kept the sprite, the race, the voice and the marker that limits
   the effects to the protagonist.
 - Armour already worn in an older save worked right after loading.
@@ -53,8 +56,8 @@ Not done yet:
 - No race in character creation: the protagonist starts human (or whatever was chosen)
   and becomes a hobgoblin through the ability.
 - Weapon groups have no own graphics yet.
-- The voice has only the lines the game's hobgoblins have: two battle cries, two
-  selection lines, a pain and a death sound.
+- The voice has only the ten clips the game's hobgoblins have, so it repeats itself
+  more than a full voice pack.
 
 ## Installation (testers)
 
@@ -73,11 +76,21 @@ you install other mods on top. WeiDU puts back every file the component changed 
 deletes the ones it added (keep the `chriz-bg-playable-races` folder until then: it holds
 the backup). In a lab check on a copy of a full EET install, all game files matched their
 state before the install afterwards. Left over were WeiDU's own `.DEBUG` log, a comment in
-`WeiDU.log` and the component's ten strings in `dialog.tlk`, which nothing uses any more.
+`WeiDU.log` and the component's strings in `dialog.tlk` (WeiDU leaves added strings in
+place).
 Saves made while the component was installed keep its changes: after an uninstall, a
 transformed protagonist stays a hobgoblin, with the plain hobgoblin sprite, no inventory
 figure, no race name and a silent voice. So back up your save folder before you try the
-component, and put it back after an uninstall. The component needs the game's hobgoblin animation (`8100.ini`, `MHOB*.BAM`) and
+component, and put it back after an uninstall.
+
+To update from v0.1, uninstall it as above while its own files are still in place, then
+unpack the new version over them and install it. Then choose **Hobgoblin** again under
+Record > Customize > Voice for a protagonist that already had the voice: the game copies a
+voice's lines into the character when the voice is chosen, so such a protagonist keeps
+v0.1's six lines, which now play the new sound files under v0.1's subtitles and leave
+orders silent.
+
+The component needs the game's hobgoblin animation (`8100.ini`, `MHOB*.BAM`) and
 stops with a message when it is missing. EEex is not required; the lab uses it only for
 testing.
 
@@ -95,6 +108,10 @@ or game files are needed. See [docs/hobgoblin.md](docs/hobgoblin.md#tests).
 Everything game-derived is built on the player's machine from their own copy of the game.
 Files generated from game data (sprites, inventory figures, sounds) never enter this
 repository. Voice lines made with voice cloning are not part of it either.
+
+The voice is registered with `lib/cd_add_soundset.tph` from the
+[EE Soundset Tool](https://github.com/Gibberlings3/EE_soundset_tool) by CamDawg and Graion
+Dilach, shipped unchanged and not covered by this repository's license.
 
 ## License
 

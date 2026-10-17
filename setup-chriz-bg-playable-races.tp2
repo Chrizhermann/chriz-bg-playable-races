@@ -2,10 +2,12 @@
 // game's own creature files. Ships no game art or audio.
 BACKUP ~chriz-bg-playable-races/backup~
 AUTHOR ~Chriz~
-VERSION ~v0.1.0-proto~
+VERSION ~v0.1.1-proto~
 
 ALWAYS
   INCLUDE ~chriz-bg-playable-races/lib/hg_functions.tpa~
+  // EE Soundset Tool helper by CamDawg and Graion Dilach, unchanged.
+  INCLUDE ~chriz-bg-playable-races/lib/cd_add_soundset.tph~
 END
 
 LANGUAGE ~English~ ~english~ ~chriz-bg-playable-races/lang/english/setup.tra~

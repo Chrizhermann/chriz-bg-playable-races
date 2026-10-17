@@ -353,9 +353,22 @@ LAF hg_extend_world_scripts STR_VAR baf = ~chriz-bg-playable-races/hobgoblin/giv
   RET hg_world_scripts = count END
 
 // ---------------------------------------------------------------- voice
-// A player voice set from the hobgoblins' own sound slots; players pick it under
-// Customize > Voice.
-LAF hg_creature_voice INT_VAR animation = 0x8100 display = RESOLVE_STR_REF (@10)
+// The hobgoblin player voice: all ten hobgoblin clips of the game, each on the event it
+// fits (docs/hobgoblin.md has the reasons). Moving and attacking always get a line; two
+// clips serve a second, rarer event. Players pick it under Customize > Voice.
+LAF hg_clip_voice INT_VAR display = RESOLVE_STR_REF (@10)
   STR_VAR name = ~CBPRHG~ tra = ~chriz-bg-playable-races/hobgoblin/voice.tra~
+          clip_common1     = ~HOBGL01~   // selected: "You be quiet!"
+          clip_common2     = ~HOBGL02~   // selected: "Manure mouth."
+          clip_action1     = ~HOBGL03~   // order: "Forward march!"
+          clip_action2     = ~HOBGL06~   // order: low growl
+          clip_battlecry1  = ~HOBGL04~   // battle cry: "Spare no one!"
+          clip_battlecry2  = ~HOBGL10~   // battle cry: attack yell
+          clip_damage1     = ~HOBGL08~   // hit: grunt
+          clip_dying1      = ~HOBGL09~   // death: wail
+          clip_hurt1       = ~HOBGL07~   // badly wounded: short yelp
+          clip_gen_death1  = ~HOBGL05~   // party member died: "Noo!"
+          clip_leader1     = ~HOBGL03~   // becomes leader: "Forward march!" again
+          clip_criticalhit = ~HOBGL04~   // critical hit: "Spare no one!" again
   RET hg_voice_slots = slots END
 PRINT ~Hobgoblin PC: ability via %hg_world_scripts% world script(s), voice set with %hg_voice_slots% slot(s)~

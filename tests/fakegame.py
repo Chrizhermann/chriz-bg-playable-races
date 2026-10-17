@@ -14,14 +14,20 @@ from pathlib import Path
 # CBPR_TEST_LIB tests another copy of the library (e.g. a deliberately broken one).
 LIB = Path(os.environ.get("CBPR_TEST_LIB")
            or Path(__file__).resolve().parents[1] / "chriz-bg-playable-races" / "lib" / "hg_functions.tpa")
+# The EE Soundset Tool helper the library calls, as the mod ships it.
+TPH = Path(__file__).resolve().parents[1] / "chriz-bg-playable-races" / "lib" / "cd_add_soundset.tph"
 
 TP2_HEAD = r"""BACKUP ~cbprtest/backup~
 AUTHOR ~test~
 ALWAYS
   INCLUDE ~cbprtest/hg_functions.tpa~
+  INCLUDE ~cbprtest/cd_add_soundset.tph~
 END
 BEGIN ~test~ DESIGNATED 0
 """
+
+# Areas WeiDU's GAME_IS looks for (EET also has override/eet.flag).
+GAME_MARKERS = {"bgee": ["OH1000"], "sod": ["OH1000", "BD0100"], "bg2ee": ["OH6000"], "eet": ["OH1000", "OH6000"]}
 
 TYPES = {"2DA": 1012, "ARE": 1010, "BAM": 1000, "BCS": 1007, "CRE": 1009, "IDS": 1008, "WAV": 4}
 
@@ -161,9 +167,11 @@ def write_key_bif(root, resources):
 
 
 class FakeGame:
-    """A fresh fake BG2:EE folder. biff/override: {"NAME.EXT": bytes}."""
+    """A fresh fake game folder (BG2:EE unless `game` names bgee, sod or eet).
+    biff/override: {"NAME.EXT": bytes}."""
 
-    def __init__(self, root, weidu, tp2_body, tlk=None, biff=None, override=None, sounds_folder=True):
+    def __init__(self, root, weidu, tp2_body, tlk=None, biff=None, override=None, sounds_folder=True,
+                 game="bg2ee"):
         self.root, self.weidu = Path(root), weidu
         shutil.rmtree(self.root, ignore_errors=True)
         (self.root / "override").mkdir(parents=True)
@@ -173,8 +181,11 @@ class FakeGame:
             (self.root / "lang/en_us/sounds").mkdir()
         (self.root / "cbprtest").mkdir()
         shutil.copy(LIB, self.root / "cbprtest/hg_functions.tpa")
+        shutil.copy(TPH, self.root / "cbprtest/cd_add_soundset.tph")
         (self.root / "cbprtest/setup-cbprtest.tp2").write_text(TP2_HEAD + tp2_body, encoding="ascii")
-        resources = [("OH6000", TYPES["ARE"], b"AREAV1.0")]
+        if game == "eet":
+            (self.root / "override/eet.flag").write_bytes(b"EET")
+        resources = [(m, TYPES["ARE"], b"AREAV1.0") for m in GAME_MARKERS[game]]
         for name, data in (biff or {}).items():
             stem, ext = name.rsplit(".", 1)
             resources.append((stem, TYPES[ext.upper()], data))
@@ -206,6 +217,16 @@ class FakeGame:
         """Hashes of the files under `rel` (the override folder by default)."""
         return {p.relative_to(self.root).as_posix().lower(): hashlib.sha256(p.read_bytes()).hexdigest()
                 for p in (self.root / rel).rglob("*") if p.is_file()}
+
+    def tree(self):
+        """Hashes of every game file apart from the test mod, WeiDU's logs and dialog.tlk
+        (WeiDU keeps appended strings on uninstall)."""
+        out = {}
+        for p in self.root.rglob("*"):
+            rel = p.relative_to(self.root).as_posix().lower()
+            if p.is_file() and not (rel.startswith(("cbprtest/", "weidu")) or rel.endswith("dialog.tlk")):
+                out[rel] = hashlib.sha256(p.read_bytes()).hexdigest()
+        return out
 
     def game_files(self):
         """Hashes of everything an install may touch: override and lang folders."""

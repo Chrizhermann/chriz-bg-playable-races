@@ -2,7 +2,7 @@
 
 The component builds everything from the installed game: the hobgoblin animation INI
 `8100.ini`, the `MHOB*` sprite files, `HOBGOB.CRE` colours, the game's item list, the
-hobgoblin creatures' sound slots and the campaigns' world scripts.
+game's ten hobgoblin sound clips and the campaigns' world scripts.
 
 ## What the installer builds
 
@@ -49,25 +49,46 @@ hobgoblin creatures' sound slots and the campaigns' world scripts.
     transparent colour (the first `RGB(0,255,0)` entry, else entry 0, as the engine picks
     it) and the header keeps the source's RLE index, so a hobgoblin sprite from another
     mod that uses other indices for them still gives a clean figure.
-11. **Voice set `CBPRHG`.** For each sound slot 1-34, the string most creatures with the
-    hobgoblin animation (`0x8100`) use, ties to the lower string number. A slot whose
-    chosen string has no sound file stays empty, as it is silent on those creatures too.
-    The voice is laid out like an EE Soundset Tool voice:
-    - Each chosen line's sound is copied as `CBPRHG` plus the slot's file character
-      (battle cry 1 `a`, damage `l`, dying `m`, select 1 `f`, ...) into
-      `lang/<language>/sounds`; two-character slots (`c_` for attack 1, ...) go to
-      `override`.
-    - Each line is resolved again with that sound and without a leading tag such as
-      `[HOBGOBLIN 01]`.
-    - The strings fill a `CHARSND.2DA` column, and `M_cdsnd.lua` gets the menu name
-      "Hobgoblin"; other voice packs' lines stay as they are. A name counts as taken
-      only on a line that sets `filenames_stringrefs['CBPRHG']` (either quote);
-      commented-out lines and longer names that contain it do not.
+11. **Voice set `CBPRHG`.** All ten hobgoblin clips of the game (`HOBGL01`-`HOBGL10`), each
+    on the event it fits, registered with the EE Soundset Tool's `cd_add_soundset`
+    (`lib/cd_add_soundset.tph`, shipped unchanged):
 
-    Rows 35 and up stay empty, because their meaning differs between BG:EE and BG2:EE.
+    | Event | Slot | Clip | What it is |
+    | --- | --- | --- | --- |
+    | Selected | common 1 | `HOBGL01` | "You be quiet!" |
+    | Selected | common 2 | `HOBGL02` | "Manure mouth." |
+    | Order (moving, acting) | action 1 | `HOBGL03` | "Forward march!" |
+    | Order (moving, acting) | action 2 | `HOBGL06` | low growl |
+    | Battle cry (attacking) | battle cry 1 | `HOBGL04` | "Spare no one!" |
+    | Battle cry (attacking) | battle cry 2 | `HOBGL10` | attack yell |
+    | Hit | damage 1 | `HOBGL08` | grunt |
+    | Death | dying 1 | `HOBGL09` | high wail |
+    | Badly wounded | hurt 1 | `HOBGL07` | short high yelp |
+    | A party member dies | death of a party member 1 | `HOBGL05` | "Noo!" |
+    | Becomes leader | leader 1 | `HOBGL03` | "Forward march!" again |
+    | Critical hit | critical hit | `HOBGL04` | "Spare no one!" again |
+
+    - Orders and battle cries are what a player triggers most, so each has two clips: moving and
+      attacking always have a line to play. Selection has the hobgoblins' own
+      two selection lines.
+    - Only two clips serve a second slot, and both on rare events, so the voice does not
+      keep repeating itself. Everything else (area comments, bored, tired, ...) stays
+      empty, as in the deliberately sparse voice packs.
+    - Each slot gets its own copy of its clip under the tool's file name for that slot
+      (`CBPRHG` plus `f`, `g`, `i`, `j`, `a`, `8`, `l`, `m`, `e`, `w`, `b`, `z`), all in
+      `lang/<language>/sounds`. Its line is the game's own subtitle for the clip: the text of
+      the lowest string that plays it, without a leading tag such as `[HOBGOBLIN 01]`, so
+      the subtitles follow the game's language. Clips without text stay without subtitle.
+    - `cd_add_soundset` puts the strings into a `CHARSND.2DA` column in the game's row
+      order (BG:EE and BG2:EE/EET order some rows differently) and adds the menu name
+      "Hobgoblin" to `M_cdsnd.lua`, next to other voice packs' lines.
+
     Without a voice set, and with a warning, nothing copied and nothing changed: when
-    `CHARSND.2DA` lacks the 99 rows 1-99, or when the name is taken already (a `CBPRHG`
-    column, a `CBPRHG` menu name in `M_cdsnd.lua`, or one of the sound files).
+    `CHARSND.2DA` lacks the 99 rows 1-99, when the name is taken already (a `CBPRHG`
+    column, a `CBPRHG` menu name in `M_cdsnd.lua`, or one of the sound files), or when no
+    clip fills a one-character slot. A name counts as taken only on a line that sets
+    `filenames_stringrefs['CBPRHG']` (either quote). A clip the game lacks leaves its slot
+    empty, with a warning.
 
 ## Why it is built this way
 
@@ -106,6 +127,56 @@ Findings from the lab (EET on BG2:EE 2.7.3.0, EEex for inspection only), 2026-10
   hobgoblin with the vanilla `move_scale` 5. The inventory figure is empty, the race has
   no name, and the voice slots point to strings whose sound files are gone.
 
+The voice, 2026-10-18:
+
+- v0.1 copied the hobgoblin creatures' own sound table slot for slot. Chris's live test
+  found it unusable ("klappt überhaupt nicht"): the creatures fill only six slots (two
+  battle cries, two selection lines, hit, death), so orders and moving stayed silent and
+  the lines played at events they were not written for. Rows and file names had matched
+  the EE Soundset Tool; what was missing was choosing a line per event, as the curated
+  packs in `chriz-bg-voicepacks` do.
+- Which slots a player character uses comes from the tool's authors
+  ([CamDawg's and MJK's posts in the tool's thread](https://www.gibberlings3.net/forums/topic/34560-adding-soundsets-to-the-ees-using-the-ee-soundset-tool/)):
+  action acknowledgements play when a character is given an order such as moving,
+  battle cries when it starts a fight, selection lines when it is selected. Attack sounds
+  are ignored in favour of the weapon's sound; happy, unhappy and breaking point are
+  reactions of NPCs to the party's reputation; common selection 7 never plays; damage 2
+  and 3 make the damage line play only part of the time. The voice uses none of those.
+- `HOBGL01`-`HOBGL04` have subtitles. The other six do not (or only "Noo!" and "Rrr!"), so
+  they were told apart by length, loudness, pitch and a local Whisper transcription:
+  `HOBGL05` is a drawn-out "Noo!", `HOBGL06` a low growl, `HOBGL07` a short high yelp,
+  `HOBGL08` a grunt, `HOBGL09` a high wail, `HOBGL10` a yell. In the game, `HOBGL08` and
+  `HOBGL09` are the creatures' hit and death sounds, and the hobgoblin animation INI uses
+  `HOBGL06` for its melee swings and `HOBGL10` for its attack (each listed with two
+  `blank` entries).
+- The protagonist's animation INIs keep those attack, hit and death sounds, as on the
+  game's hobgoblins, whatever voice the protagonist has.
+- Lab check of the test package on EET 2.7.3.0 (runs 13 and 13b). The lab runs without
+  sound, so the message log's subtitles and the engine's state stood in for listening.
+  - The installer added the twelve sound files, the `CHARSND.2DA` column, the strings and
+    the menu line, without a warning. **Hobgoblin** was listed under Customize > Voice, and
+    choosing it filled exactly the twelve slots of the table, rows 53 and 65 included.
+    Slot 74 holds the protagonist's biography (`BIO` in `SOUNDOFF.IDS`).
+  - Each line with a subtitle showed it when played; the clips without text showed none.
+  - Six selections of the protagonist played the two selection lines in turn.
+  - Moving: the engine's function for a click on the ground
+    (`CGameArea::OnActionButtonClickGround`, which EEex's keybinds use for orders) moved
+    the protagonist nine times, and each move played an order line ("Forward march!" or
+    "Rrr!"). One click on a spot it could not walk to moved it nowhere and played nothing.
+  - Attacking: four attack orders on a hobgoblin captain through the engine's click
+    function for objects (`virtual_OnActionButton`) each started an attack. With four more
+    attacks the party AI started, "Spare no one!" came twice in eight attack starts; the
+    other battle cry has no subtitle. The engine does not play a battle cry at every
+    attack start: in the same fight Keldorn and Yoshimo, with three subtitled battle cries
+    each, gave none in four and two attack starts, Sir Anomen one at each of his four.
+  - Clicks sent to the world screen's mouse handlers
+    (`m_pEngineWorld:virtual_OnLButtonDown/Up`) gave no order at all.
+- Updating from v0.1: a character keeps the lines its voice had when the voice was
+  chosen. The lab save's protagonist still had v0.1's six lines after v0.1 was uninstalled
+  and v0.1.1 installed, until **Hobgoblin** was chosen again. WeiDU leaves added strings in
+  `dialog.tlk`, so those lines stay valid and now name the new sound files, under v0.1's
+  subtitles.
+
 ## Tests
 
 `python tests/run_tests.py --weidu <weidu.exe>` runs the library's functions in small
@@ -113,12 +184,16 @@ synthetic game folders (made-up tables, strings, creatures, scripts and sprites;
 needed):
 - world-script discovery, and the shipped `give_ability.baf` compiled on top of the world
   scripts;
-- the `CHARSND.2DA` check, sound lookup and voice-set registration, also next to other
-  voice packs' menu lines;
-- the creature vote with its sound files, and the cases where no voice set may be made;
+- the `CHARSND.2DA` check and the clips' subtitles from the string table;
+- the curated voice in BG2:EE, EET and BG:EE row order: strings, sound files, menu line
+  next to other voice packs' lines, uninstall, and the cases where no voice set may be
+  made;
+- the shipped `cd_add_soundset.tph` byte for byte, and the hobgoblin voice's table: all ten
+  clips, at most two used twice, orders, battle cries and selection filled, no slot that
+  is silent for player characters;
 - the inventory figure, also from sprites with other transparent and RLE indices;
-- a WeiDU parse check of the tp2 and every tpa, and the language file against every
-  `@N` the sources use.
+- a WeiDU parse check of the tp2, every tpa and the tph, and the language file against
+  every `@N` the sources use.
 
 The tests include uninstall. Any WeiDU 249 or newer works, also a mod's `setup-*.exe`.
 
@@ -126,6 +201,8 @@ The tests include uninstall. Any WeiDU 249 or newer works, also a mod's `setup-*
 
 - A race in character creation, so the protagonist starts as a hobgoblin.
 - Graphics per weapon group.
+- Listening to the voice in a real game: the lab runs muted, so it checked subtitles and
+  the engine's state, not the sound.
 - More voice lines.
 - Before a release: check the `HG*` resource names (`HGPM*`, `HGPR*`, `HGE*`, `HGA*`,
   `HGPC*`) and the voice set name `CBPRHG` against other mods.

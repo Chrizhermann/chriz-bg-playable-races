@@ -5,6 +5,7 @@ usage: python tests/run_tests.py --weidu <path to weidu.exe or a mod's setup-*.e
 Exit code 0 when every test passes.
 """
 import argparse
+import hashlib
 import re
 import shutil
 import subprocess
@@ -201,33 +202,51 @@ def charsnd_check(work, weidu):
     return fails
 
 
-# --- TLK sound lookup -----------------------------------------------------------------
+# --- Subtitles of sound clips ----------------------------------------------------------
 
-TLK_TP2 = r"""COPY - ~lang/en_us/dialog.tlk~ ~override~
-  FOR (i = 0; i < 5; ++i) BEGIN
-    SET ref = (i = 0) ? 1 : ((i = 1) ? 2 : ((i = 2) ? 3 : ((i = 3) ? 4 : (0 - 1))))
-    LPF hg_tlk_sound INT_VAR strref = ref RET sound END
-    PATCH_PRINT ~RESULT TLK %ref% <%sound%>~
+CV_TLK = [
+    ("", ""),                                       # 0
+    ("Original", ""),                               # 1
+    ("[HOBGOBLIN 01] You be quiet!", "hobgl01"),    # 2 the lowest string with text (sound in lower case)
+    ("You be quiet, too!", "HOBGL01"),              # 3 later: not used
+    ("[HOBGOBLIN 06]", "HOBGL06"),                  # 4 only a tag, no text ...
+    ("Rrr!", "HOBGL06"),                            # 5 ... so this later string's text is used
+    ("  [X] Manure ~mouth~.  ", "HOBGL02"),         # 6 spaces, tag and tildes go
+    ("Other text", "HOBGL02"),                      # 7 later: not used
+    ("[HOBGOBLIN 08]", "HOBGL08"),                  # 8 no text at all
+    ("Human line", "HUMAN01"),                      # 9 another clip
+]
+CV_ORIG = [(text, sound.upper()) for text, sound in CV_TLK]
+CV_TEXTS = {"HOBGL01": "You be quiet!", "HOBGL02": "Manure mouth.", "HOBGL06": "Rrr!", "HOBGL08": ""}
+TT_TP2 = r"""COPY - ~lang/en_us/dialog.tlk~ ~override~
+  LPF hg_tlk_clip_texts STR_VAR clips = ~hobgl01 HOBGL02  HOBGL06 HOBGL08 HOBGL03~ RET_ARRAY t = texts END
+  PHP_EACH t AS k => v BEGIN
+    PATCH_PRINT ~RESULT TT %k%=<%v%>~
   END
 COPY - ~cbprtest/setup-cbprtest.tp2~ ~override~
-  LPF hg_tlk_sound INT_VAR strref = 1 RET sound END
-  PATCH_PRINT ~RESULT TLK other-file <%sound%>~
+  LPF hg_tlk_clip_texts STR_VAR clips = ~HOBGL01~ RET_ARRAY u = texts END
+  SET n = 0
+  PHP_EACH u AS k => v BEGIN
+    SET n += 1
+  END
+  PATCH_PRINT ~RESULT TT other-file %n%~
 """
 
 
 @test
-def tlk_sound(work, weidu):
-    """Sound of a string (also a full 8-character name); empty without one, out of range, or
-    for a file that is no TLK."""
-    tlk = fg.make_tlk([("", ""), ("A", "SND1"), ("B", ""), ("C", "LONGNAM8")])
-    g = fg.FakeGame(work / "tlk", weidu, TLK_TP2, tlk=tlk)
+def tlk_clip_texts(work, weidu):
+    """Each clip's subtitle is the text of the lowest string that plays it (sound names in
+    any case) without a leading "[TAG]", "~" and outer spaces; a later string with text wins
+    over earlier ones without; a clip no string plays gets none; a file that is no TLK
+    gives nothing."""
+    g = fg.FakeGame(work / "tt", weidu, TT_TP2, tlk=fg.make_tlk(CV_TLK))
     out = g.install()
-    want = ["1 <SND1>", "2 <>", "3 <LONGNAM8>", "4 <>", "-1 <>", "other-file <>"]
-    got = g.results(out, "TLK")
+    got = sorted(g.results(out, "TT"))
+    want = sorted([f"{k}=<{v}>" for k, v in CV_TEXTS.items()] + ["other-file 0"])
     return [] if fg.installed_ok(out) and got == want else [f"{got}, want {want}"]
 
 
-# --- Voice set registration (CHARSND.2DA column + M_cdsnd.lua) -------------------------
+# --- Curated voice set from the game's sound clips (cd_add_soundset) -------------------
 
 LINE = "filenames_stringrefs['CBPRHG'] = {4242, 2}"
 OTHERS = ["filenames_stringrefs['GROMVP'] = {68790, 2}", "filenames_stringrefs['VICOB1'] = {329940, 2}"]
@@ -235,206 +254,151 @@ OTHERS = ["filenames_stringrefs['GROMVP'] = {68790, 2}", "filenames_stringrefs['
 NEAR_MISSES = ["-- filenames_stringrefs['CBPRHG'] = {1, 2}", "filenames_stringrefs['CBPRHG2'] = {5, 2}",
                "filenames_stringrefs['XCBPRHG'] = {6, 2}", "local old = filenames_stringrefs['CBPRHG']"]
 CRLF_LUA = ("    \r\n" + "\r\n".join(OTHERS) + "\r\n").encode()
-VS_TP2 = r"""OUTER_SPRINT values ~~
-OUTER_FOR (r = 1; r <= 99; ++r) BEGIN
-  OUTER_SET v = (r < 35) ? (1000 + r) : (0 - 1)
-  OUTER_SPRINT values ~%values% %v%~
-END
-LAF hg_add_voice_set INT_VAR display = 4242 STR_VAR name = ~CBPRHG~ values RET ok END
-PRINT ~RESULT VS %ok%~
-LAF hg_add_voice_set INT_VAR display = 4242 STR_VAR name = ~CBPRHG~ values RET ok END
-PRINT ~RESULT VS %ok%~
-"""
-
-
-@test
-def voice_set(work, weidu):
-    """The column has the right value in every row and every other column stays; the menu
-    file is the old lines plus ours (once, also when called twice, also without a final
-    newline, created when missing; lines that only look like ours do not count); a bad or
-    missing CHARSND.2DA changes nothing; uninstall restores the override folder byte for byte."""
-    good, short = charsnd(range(1, 100)), charsnd(range(1, 99))
-    cases = {
-        # name: (CHARSND bytes, where: "override" | "biff" | None, M_cdsnd.lua bytes or None, ok)
-        "override_table_crlf_lua": (good, "override", CRLF_LUA, 1),
-        "biff_table_no_lua": (good, "biff", None, 1),
-        "biff_table_lf_lua": (good, "biff", ("\n".join(OTHERS) + "\n").encode(), 1),
-        "lua_without_final_newline": (good, "override", "\r\n".join(OTHERS).encode(), 1),
-        "lua_near_misses": (good, "override", ("\r\n".join(OTHERS + NEAR_MISSES) + "\r\n").encode(), 1),
-        "98_row_table": (short, "biff", CRLF_LUA, 0),
-        "no_table": (None, None, CRLF_LUA, 0),
-    }
-    fails = []
-    for name, (table, where, lua, want_ok) in cases.items():
-        override = {"M_cdsnd.lua": lua} if lua is not None else {}
-        if where == "override":
-            override["CHARSND.2DA"] = table
-        g = fg.FakeGame(work / f"vs_{name}", weidu, VS_TP2,
-                        biff={"CHARSND.2DA": table} if where == "biff" else None, override=override)
-        before = g.override()
-        out = g.install()
-        problems = []
-        if g.results(out, "VS") != [str(want_ok)] * 2 or not fg.installed_ok(out):
-            problems.append(f"results {g.results(out, 'VS')}")
-        elif want_ok:
-            head, data = fg.table(g.read("override/CHARSND.2DA"))
-            ohead, odata = fg.table(table)
-            if head != ohead + ["CBPRHG"]:
-                problems.append(f"header {head}")
-            for r in range(1, 100):
-                row, want = data.get(str(r)), str(1000 + r) if r < 35 else "-1"
-                if row is None or row != odata[str(r)] + [want]:
-                    problems.append(f"row {r}: {row}")
-                    break
-            # WeiDU's APPEND rewrites the file with CRLF line ends on Windows, as for every
-            # APPENDing installer; Lua does not mind, so only the lines are compared.
-            text = g.read("override/M_cdsnd.lua").decode()
-            old = [ln.strip() for ln in lua.decode().splitlines()] if lua is not None else []
-            if [ln.strip() for ln in text.splitlines()] != old + [LINE]:
-                problems.append(f"menu file {text!r}")
-        elif g.override() != before:
-            problems.append("override changed although the voice set was refused")
-        g.uninstall()
-        if g.override() != before:
-            problems.append("uninstall did not restore the override folder")
-        fails += [f"{name}: {p}" for p in problems]
-    return fails
-
-
-# --- Voice set from the creatures of an animation --------------------------------------
-
-CV_TLK = [
-    ("", ""),                                       # 0
-    ("Original", ""),                               # 1
-    ("[HOBGOBLIN 01] You be quiet!", "HOBGL01"),    # 2 tagged copy
-    ("You be quiet!", "HOBGL01"),                   # 3 untagged copy of 2
-    ("[HOBGOBLIN 05] Noo!", "HOBGL05"),             # 4 tagged only
-    ("Rrr!", "HOBGL06"),                            # 5 untagged only
-    ("Grunt", ""),                                  # 6 no sound
-    ("[HOBGOBLIN 02] Manure ~mouth~.", "HOBGL02"),  # 7 tildes in the text
-    ("Human line", "HUMAN01"),                      # 8 other animation
-]
-CV_TP2 = r"""LAF hg_creature_voice INT_VAR animation = 0x8100 display = RESOLVE_STR_REF (~Hobgoblin~)
-  STR_VAR name = ~{NAME}~ tra = ~cbprtest/voice.tra~ RET slots END
+CV_CLIPS = {"HOBGL01": b"OggS-one", "HOBGL02": b"OggS-two", "HOBGL03": b"OggS-three", "HOBGL06": b"OggS-six",
+            "HOBGL08": b"OggS-eight"}  # no HOBGL05
+# slot: (clip, file name suffix, CHARSND.2DA row in BG2:EE and EET, row in BG:EE), from the
+# EE Soundset Tool's documentation; select_rare1 and action4 are rows the games order apart.
+CV_SLOTS = {"common1": ("HOBGL01", "f", 26, 26), "select_rare1": ("hobgl02", "w_", 75, 35),
+            "action1": ("HOBGL03", "i", 32, 32), "action4": ("HOBGL06", "s", 35, 79),
+            "leader1": ("HOBGL03", "b", 6, 6), "damage1": ("HOBGL08", "l", 18, 18)}
+CV_ARGS = " ".join(f"clip_{slot} = ~{clip}~" for slot, (clip, *_) in CV_SLOTS.items()) + " clip_gen_death1 = ~HOBGL05~"
+CV_TP2 = r"""LAF hg_clip_voice INT_VAR display = RESOLVE_STR_REF (~Hobgoblin~)
+  STR_VAR name = ~{NAME}~ tra = ~cbprtest/voice.tra~ {CLIPS}
+  RET slots END
 PRINT ~RESULT CV %slots%~
 """
-CV_WAVS = {"HOBGL01": b"OggS-one", "HOBGL02": b"OggS-two", "HOBGL05": b"OggS-five"}  # HOBGL06 missing
 
 
-def cv_game(work, weidu, case, name="CBPRHG", table=None, sounds_folder=True):
-    hob, hum = 0x8100, 0x6100
-    override = {
-        "HOBA.CRE": fg.make_cre(hob, {9: 2, 14: 7, 18: 4, 19: 5, 20: 6, 32: 5}),
-        "HOBB.CRE": fg.make_cre(hob, {9: 2, 18: 4, 32: 3}),
-        "HOBC.CRE": fg.make_cre(hob, {9: 3}),
-        "HUMA.CRE": fg.make_cre(hum, {9: 8, 14: 8, 18: 8}),
-        "HUMB.CRE": fg.make_cre(hum, {9: 8, 14: 8, 18: 8}),
-        "HUMC.CRE": fg.make_cre(hum, {9: 8, 14: 8, 18: 8}),
-        "SHORT.CRE": fg.make_cre(hob, {}, size=0x100),
-        "HOBGL05.WAV": CV_WAVS["HOBGL05"],
-    }
-    biff = {"CHARSND.2DA": table or charsnd(range(1, 100)), "HOBD.CRE": fg.make_cre(hob, {9: 3, 19: 5}),
-            "HOBGL01.WAV": CV_WAVS["HOBGL01"], "HOBGL02.WAV": CV_WAVS["HOBGL02"]}
-    return fg.FakeGame(work / f"cv_{case}", weidu, CV_TP2.replace("{NAME}", name), tlk=fg.make_tlk(CV_TLK),
-                       biff=biff, override=override, sounds_folder=sounds_folder)
-
-
-def voice_files(g):
-    return {**g.override(), **g.override("lang/en_us/sounds")} if (g.root / "lang/en_us/sounds").exists() \
-        else g.override()
+def cv_game(work, weidu, case, game="bg2ee", name="CBPRHG", clips=CV_ARGS, table=None, where="biff", lua=None,
+            sounds_folder=True, twice=False):
+    body = CV_TP2.replace("{NAME}", name).replace("{CLIPS}", clips) * (2 if twice else 1)
+    biff = {"HOBGL01.WAV": CV_CLIPS["HOBGL01"], "HOBGL02.WAV": CV_CLIPS["HOBGL02"]}
+    override = {f"{c}.WAV": CV_CLIPS[c] for c in ("HOBGL03", "HOBGL06", "HOBGL08")}
+    table = charsnd(range(1, 100)) if table is None else table
+    if where == "biff":
+        biff["CHARSND.2DA"] = table
+    elif where == "override":
+        override["CHARSND.2DA"] = table
+    if lua is not None:
+        override["M_cdsnd.lua"] = lua
+    return fg.FakeGame(work / f"cv_{case}", weidu, body, tlk=fg.make_tlk(CV_TLK), biff=biff, override=override,
+                       sounds_folder=sounds_folder, game=game)
 
 
 @test
-def creature_voice(work, weidu):
-    """Per-slot vote over the creatures with the animation (override and BIFF), ties to the
-    lower strref, other animations and short files ignored; each line's sound copied under
-    the classic file name (one-character slots to lang/<language>/sounds, two-character
-    ones to override), slots without sound or sound file left empty; subtitles without
-    "[TAG]" and "~" and with the new sound; the menu name joins other voices' lines in
-    M_cdsnd.lua; uninstall removes the files (also the scratch TRA) again and keeps the
-    existing strings. Also when the sounds folder is missing."""
+def clip_voice(work, weidu):
+    """Each filled slot lands in the EE Soundset Tool's CHARSND.2DA row for the game
+    (BG2:EE and EET order, BG:EE order); its line is the clip's game subtitle with a copy
+    of the clip under the slot's file name (one-character suffixes into
+    lang/<language>/sounds, also when that folder is missing, two-character ones into
+    override); one clip can serve two slots; a clip the game lacks is warned about and its
+    slot stays empty; the menu name joins the other voices' lines in M_cdsnd.lua (created
+    when missing; lines that only look like ours do not count); every other column and
+    string stays; a second call registers nothing; uninstall restores every game file and
+    removes the scratch TRA."""
+    cases = {
+        "bg2ee": {},
+        "eet": {"game": "eet"},
+        "bgee": {"game": "bgee", "lua": CRLF_LUA},
+        "override_table_lf_lua": {"where": "override", "lua": ("\n".join(OTHERS) + "\n").encode()},
+        "lua_without_final_newline": {"lua": "\r\n".join(OTHERS).encode()},
+        "lua_near_misses": {"lua": ("\r\n".join(OTHERS + NEAR_MISSES) + "\r\n").encode()},
+        "no_sounds_folder": {"sounds_folder": False},
+        "twice": {"twice": True},
+    }
     fails = []
-    for case, sounds_folder, lua in (("normal", True, None), ("no_sounds_folder", False, None),
-                                     ("other_voices_lua", True, OTHERS + NEAR_MISSES)):
-        g = cv_game(work, weidu, case, sounds_folder=sounds_folder)
-        if lua:
-            (g.root / "override/M_cdsnd.lua").write_bytes(("\r\n".join(lua) + "\r\n").encode())
-        before = voice_files(g)
-        tra = g.root / "cbprtest/voice.tra"
+    for case, kw in cases.items():
+        g = cv_game(work, weidu, case, **kw)
+        before = g.tree()
         out = g.install()
         if not fg.installed_ok(out):
             fails.append(f"{case}: install failed: {out[-1500:]}")
             continue
-        problems = [] if tra.is_file() else ["no scratch TRA written"]
-        if g.results(out, "CV") != ["4"]:
-            problems.append(f"slots {g.results(out, 'CV')}, want 4")
+        problems = [] if (g.root / "cbprtest/voice.tra").is_file() else ["no scratch TRA written"]
+        want_results = ["6", "0"] if kw.get("twice") else ["6"]
+        if g.results(out, "CV") != want_results:
+            problems.append(f"slots {g.results(out, 'CV')}, want {want_results}")
+        if "HOBGL05 (gen_death1)" not in out:
+            problems.append("no warning about the missing clip")
         tlk = fg.tlk_entries(g.read("lang/en_us/dialog.tlk"))
-        if tlk[:len(CV_TLK)] != CV_TLK:
+        if tlk[:len(CV_ORIG)] != CV_ORIG:
             problems.append("existing strings changed")
-        new = {e: i for i, e in enumerate(tlk) if i >= len(CV_TLK)}
-        want = {9: new.get(("You be quiet!", "CBPRHGA")), 14: new.get(("Manure mouth.", "CBPRHGC_")),
-                18: new.get(("Noo!", "CBPRHGL")), 32: new.get(("You be quiet!", "CBPRHGI"))}
-        head, data = fg.table(g.read("override/CHARSND.2DA"))
-        if "CBPRHG" not in head:
-            problems.append("no CBPRHG column")
+        new = {e: i for i, e in enumerate(tlk) if i >= len(CV_ORIG)}
+        bg1 = kw.get("game") == "bgee"
+        want = {(row1 if bg1 else row2): new.get((CV_TEXTS.get(clip.upper(), ""), f"CBPRHG{suffix}".upper()))
+                for clip, suffix, row2, row1 in CV_SLOTS.values()}
+        table = g.root / "override/CHARSND.2DA"
+        head, data = fg.table(table.read_bytes()) if table.is_file() else ([], {})
+        ohead, odata = fg.table(charsnd(range(1, 100)))
+        if head != ohead + ["CBPRHG"]:
+            problems.append(f"header {head}")
         else:
-            col = head.index("CBPRHG")
             for r in range(1, 100):
-                got, exp = int(data[str(r)][col]), want.get(r, -1)
-                if exp is None or got != exp:
-                    problems.append(f"row {r}: {got} {tlk[got] if 0 <= got < len(tlk) else ''}, want {exp}")
-        files = {"lang/en_us/sounds/cbprhga.wav": CV_WAVS["HOBGL01"], "override/cbprhgc_.wav": CV_WAVS["HOBGL02"],
-                 "lang/en_us/sounds/cbprhgl.wav": CV_WAVS["HOBGL05"], "lang/en_us/sounds/cbprhgi.wav": CV_WAVS["HOBGL01"]}
+                row, exp = data.get(str(r), []), want.get(r, -1)
+                if exp is None or row[:-1] != odata[str(r)] or int(row[-1]) != exp:
+                    problems.append(f"row {r}: {row}, want {exp}")
+        files = {f"{'lang/en_us/sounds' if len(suffix) == 1 else 'override'}/cbprhg{suffix}.wav": CV_CLIPS[clip.upper()]
+                 for clip, suffix, *_ in CV_SLOTS.values()}
         made = {p.relative_to(g.root).as_posix().lower(): p.read_bytes() for p in g.root.rglob("*")
                 if p.is_file() and p.name.lower().startswith("cbprhg") and "backup" not in p.parts}
         if made != files:
             problems.append(f"sound files {sorted(made)}, want {sorted(files)}")
-        lines = [ln.strip() for ln in g.read("override/M_cdsnd.lua").decode().splitlines()]
+        lua = kw.get("lua")
+        menu = g.root / "override/M_cdsnd.lua"
+        lines = [ln.strip() for ln in menu.read_text(encoding="utf-8").splitlines() if ln.strip()] if menu.is_file() else []
         ours = [ln for ln in lines if ln.startswith("filenames_stringrefs['CBPRHG']")]
+        old = [ln.strip() for ln in lua.decode().splitlines() if ln.strip()] if lua is not None else []
         try:
             named = len(ours) == 1 and tlk[int(ours[0].split("{")[1].split(",")[0])] == ("Hobgoblin", "")
         except (IndexError, ValueError):
             named = False
-        if not named or [ln for ln in lines if ln not in ours] != (lua or []):
+        if not named or lines != old + ours:
             problems.append(f"menu file {lines}")
         g.uninstall()
-        if voice_files(g) != before:
-            problems.append(f"uninstall left {sorted(set(voice_files(g).items()) ^ set(before.items()))}")
-        if tra.exists():
+        after = g.tree()
+        if after != before:
+            problems.append(f"uninstall left {sorted(set(after.items()) ^ set(before.items()))}")
+        if (g.root / "cbprtest/voice.tra").exists():
             problems.append("uninstall left the scratch TRA")
-        # WeiDU keeps appended strings on uninstall (unused then); existing ones must be intact.
-        if fg.tlk_entries(g.read("lang/en_us/dialog.tlk"))[:len(CV_TLK)] != CV_TLK:
+        if fg.tlk_entries(g.read("lang/en_us/dialog.tlk"))[:len(CV_ORIG)] != CV_ORIG:
             problems.append("uninstall changed existing strings")
         fails += [f"{case}: {p}" for p in problems]
     return fails
 
 
 @test
-def creature_voice_refused(work, weidu):
-    """No voice set and no file changes when CHARSND.2DA has a bad layout, when the name is
-    taken (CHARSND.2DA column or M_cdsnd.lua menu name) or when a sound file the voice
-    needs exists already; a name longer than six characters stops the install."""
+def clip_voice_refused(work, weidu):
+    """No voice set and no file changes when CHARSND.2DA is missing or lacks the 99
+    numbered rows, when the name is taken (CHARSND.2DA column, M_cdsnd.lua menu name, a
+    sound file the voice would write in either folder), when the game has none of the
+    clips, or when no clip fills a one-character slot (the voice menu would not list the
+    voice); a name longer than six characters stops the install."""
     taken = fg.make_2da(["MALE", "CBPRHG"], [(str(r), ["-1", "-1"]) for r in range(1, 100)])
     menu = "\r\n".join(["filenames_stringrefs['GROMVP'] = {68790, 2}",
                         '  filenames_stringrefs[ "CBPRHG" ] = {1, 2}', ""]).encode()
     fails = []
-    for case, kw, outcome, extra in (("98_row_table", {"table": charsnd(range(1, 99))}, "0", {}),
-                                     ("column_taken", {"table": taken}, "0", {}),
-                                     ("menu_name_taken", {}, "0", {"override/M_cdsnd.lua": menu}),
-                                     ("sound_file_taken", {}, "0", {"lang/en_us/sounds/CBPRHGl.wav": b"other"}),
-                                     ("override_file_taken", {}, "0", {"override/CBPRHGc_.wav": b"other"}),
-                                     ("name_too_long", {"name": "CBPRHOB"}, "fail", {})):
+    for case, kw, outcome, extra in (
+            ("98_row_table", {"table": charsnd(range(1, 99))}, "0", {}),
+            ("no_table", {"where": None}, "0", {}),
+            ("column_taken", {"table": taken}, "0", {}),
+            ("menu_name_taken", {"lua": menu}, "0", {}),
+            ("sound_file_taken", {}, "0", {"lang/en_us/sounds/CBPRHGf.wav": b"other"}),
+            ("override_file_taken", {}, "0", {"override/CBPRHGw_.wav": b"other"}),
+            ("no_clip_in_game", {"clips": "clip_common1 = ~HOBGL05~ clip_action1 = ~NOSUCH~"}, "0", {}),
+            ("only_two_character_slots", {"clips": "clip_select_rare1 = ~HOBGL02~ clip_common5 = ~HOBGL01~"},
+             "0", {}),
+            ("name_too_long", {"name": "CBPRHOB"}, "fail", {})):
         g = cv_game(work, weidu, case, **kw)
         for rel, data in extra.items():
             (g.root / rel).write_bytes(data)
-        before = voice_files(g)
+        before = g.tree()
         out = g.install()
         if outcome == "fail":
             ok = fg.failed(out)
         else:
             ok = fg.installed_ok(out) and g.results(out, "CV") == [outcome]
-        if not ok or voice_files(g) != before:
-            fails.append(f"{case}: results {g.results(out, 'CV')}, files changed: {voice_files(g) != before}")
+        if not ok or g.tree() != before:
+            fails.append(f"{case}: results {g.results(out, 'CV')}, files changed: {g.tree() != before}")
     return fails
 
 
@@ -509,12 +473,54 @@ def inventory_figure(work, weidu):
 
 # --- The shipped sources ---------------------------------------------------------------
 
+# cd_add_soundset.tph as the EE Soundset Tool ships it (Gibberlings3/EE_soundset_tool, also
+# in every chriz-bg-voicepacks release).
+SOUNDSET_TOOL_SHA256 = "a581fae61b165c0c8af8a6ad7136b7b1b825e14d379c528bfb89453a06f843c5"
+# Slots the tool's authors found silent for player characters: common selection 7, the
+# attack sounds (the weapon's sound plays instead) and the reputation reactions (NPCs only).
+SILENT_FOR_PCS = {"common7", "attack1", "attack2", "attack3", "attack4", "happy", "unhappy_1", "unhappy_2",
+                  "breaking_pt"}
+
+
+@test
+def soundset_tool_unchanged(work, weidu):
+    """The EE Soundset Tool helper is shipped byte for byte as its authors publish it."""
+    data = (MOD / "lib/cd_add_soundset.tph").read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    return [] if digest == SOUNDSET_TOOL_SHA256 else [f"cd_add_soundset.tph has sha256 {digest}"]
+
+
+@test
+def hob_voice_curation(work, weidu):
+    """The hobgoblin voice uses each of the game's ten hobgoblin clips (HOBGL01-HOBGL10), at
+    most two of them for a second slot; selecting, ordering (moving) and attacking (battle
+    cry) always have a line; no clip goes to a slot that is silent for player characters."""
+    text = (MOD / "hobgoblin/hobgoblin.tpa").read_text(encoding="latin-1")
+    call = text[text.index("LAF hg_clip_voice"):]
+    call = call[:call.index("RET hg_voice_slots")]
+    slots = re.findall(r"\bclip_(\w+)\s*=\s*~([^~]*)~", call)
+    clips = [clip.upper() for _, clip in slots]
+    fails = []
+    if set(clips) != {f"HOBGL{i:02d}" for i in range(1, 11)}:
+        fails.append(f"clips {sorted(set(clips))}")
+    if len(clips) - len(set(clips)) > 2:
+        fails.append(f"{len(clips) - len(set(clips))} clips serve a second slot")
+    if len({slot for slot, _ in slots}) != len(slots):
+        fails.append("a slot is named twice")
+    for group in ("common", "action", "battlecry"):
+        if not any(slot.startswith(group) for slot, _ in slots):
+            fails.append(f"no {group} slot")
+    if silent := sorted({slot for slot, _ in slots} & SILENT_FOR_PCS):
+        fails.append(f"silent slots {silent}")
+    return fails
+
+
 @test
 def sources_parse(work, weidu):
-    """WeiDU parses the tp2 and every tpa (also the code the fake games above do not run);
+    """WeiDU parses the tp2, every tpa and the tph (also code the fake games above do not run);
     every language file loads, WeiDU reads the same strings from it as a plain reading, and
     it has every @N the tp2 and tpa files use."""
-    sources = [("TP2", REPO / "setup-chriz-bg-playable-races.tp2")] + [("TPA", p) for p in sorted(MOD.rglob("*.tpa"))]
+    sources = [("TP2", REPO / "setup-chriz-bg-playable-races.tp2")] + [("TPA", p) for p in sorted(MOD.rglob("*.tp[ah]"))]
     fails, used = [], set()
     for kind, path in sources:
         proc = subprocess.run([weidu, "--no-exit-pause", "--nogame", "--no-auto-tp2", "--parse-check", kind, str(path)],

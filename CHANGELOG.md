@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.1-proto (unreleased)
+
+- Curated hobgoblin voice: all ten hobgoblin clips of the game, each on the event it fits
+  (two order lines, two battle cries, two selection lines, hit, death, badly wounded, a
+  party member's death; becoming leader and critical hits reuse an order line and a battle
+  cry). v0.1 copied the creatures' own sound table, which left orders silent.
+- The voice is registered with the EE Soundset Tool's `cd_add_soundset.tph`, shipped
+  unchanged, like the voice packs in `chriz-bg-voicepacks`; subtitles come from the
+  game's own strings.
+- Updating from v0.1: choose the Hobgoblin voice again under Record > Customize > Voice.
+  A character keeps the lines its voice had when it was chosen.
+
 ## v0.1.0-proto (2026-10-18)
 
 - Innate ability "Become a Hobgoblin" (`HGPCXFRM`) for the protagonist, handed out once

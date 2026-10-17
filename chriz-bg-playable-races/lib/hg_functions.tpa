@@ -368,18 +368,59 @@ BEGIN
   DELETE_BYTES 0 nb
 END
 
-// Sound resref of `strref` in the current TLK V1 buffer; empty when it has none, or when
-// the buffer is no TLK V1 or the strref lies outside it.
-DEFINE_PATCH_FUNCTION hg_tlk_sound
-  INT_VAR strref = 0
-  RET sound
+// Subtitles of sound clips, from the current TLK V1 buffer. `clips`: resrefs separated by
+// spaces (any case). For each clip some string plays, `texts` (key: the clip in upper case)
+// gets the text of the lowest such string, without a leading "[TAG]", without "~" and
+// trimmed; a string that keeps some text wins over one that keeps none. Nothing for a
+// buffer that is no TLK V1.
+DEFINE_PATCH_FUNCTION hg_tlk_clip_texts
+  STR_VAR clips = ~~
+  RET_ARRAY texts
 BEGIN
-  SPRINT sound ~~
+  CLEAR_ARRAY texts
+  // Per wanted clip: 0 no string seen yet, 1 only strings without text, 2 text found.
+  CLEAR_ARRAY hgt_state
+  INNER_PATCH ~%clips%~ BEGIN
+    REPLACE_EVALUATE ~\([^ %TAB%]+\)~ BEGIN
+      SPRINT clip ~%MATCH1%~
+      TO_UPPER clip
+      SET $hgt_state(~%clip%~) = 0
+    END ~%MATCH1%~
+  END
   READ_ASCII 0 sig (8)
   PATCH_IF (~%sig%~ STRING_EQUAL ~TLK V1  ~) BEGIN
     READ_LONG 0x0a count
-    PATCH_IF (strref >= 0) AND (strref < count) BEGIN
-      READ_ASCII (0x12 + strref * 0x1a + 2) sound (8) NULL
+    READ_LONG 0x0e start
+    FOR (i = 0; i < count; ++i) BEGIN
+      SET e = 0x12 + i * 0x1a
+      READ_BYTE (e + 2) c
+      PATCH_IF (c != 0) BEGIN
+        READ_ASCII (e + 2) snd (8) NULL
+        TO_UPPER snd
+        PATCH_IF VARIABLE_IS_SET EVAL ~hgt_state_%snd%~ BEGIN
+          PATCH_IF ($hgt_state(~%snd%~) < 2) BEGIN
+            READ_LONG (e + 0x12) off
+            READ_LONG (e + 0x16) len
+            SPRINT text ~~
+            PATCH_IF (len > 0) BEGIN
+              READ_ASCII (start + off) text (len)
+            END
+            INNER_PATCH_SAVE text ~%text%~ BEGIN
+              REPLACE_TEXTUALLY ~^[ %TAB%]*[[][^]]*[]]~ ~~
+              REPLACE_TEXTUALLY "~" ""
+              REPLACE_TEXTUALLY ~^[ %TAB%]+~ ~~
+              REPLACE_TEXTUALLY ~[ %TAB%]+$~ ~~
+            END
+            PATCH_IF (STRING_LENGTH ~%text%~ > 0) BEGIN
+              SPRINT $texts(~%snd%~) ~%text%~
+              SET $hgt_state(~%snd%~) = 2
+            END ELSE PATCH_IF ($hgt_state(~%snd%~) = 0) BEGIN
+              SPRINT $texts(~%snd%~) ~~
+              SET $hgt_state(~%snd%~) = 1
+            END
+          END
+        END
+      END
     END
   END
 END
@@ -490,28 +531,109 @@ BEGIN
   END
 END
 
-// Player voice set `name` (1-6 characters) from the creatures that use `animation`: for
-// each sound slot the string most of them use. Rows 1-34 only: their meaning matches the
-// creature sound slots and is the same in BG:EE and BG2:EE (rows 35-38 differ).
-// It is laid out like an EE Soundset Tool voice. The voice menu lists the voices whose
-// files lie in lang/<language>/sounds, named the classic way: voice name plus a character
-// for the sound slot. So each chosen line's sound is copied there under that name
-// (two-character slots go to override, where they do not show up as voices of their own),
-// and the line is resolved again with that sound and a leading "[TAG]" removed (an
-// identical existing string is reused). The strings then fill a CHARSND.2DA column and the
-// menu shows strref `display`. `tra` is a scratch file in the mod folder. Returns the
-// filled slots, 0 when the creatures have no voice, or when CHARSND.2DA has an unexpected
-// layout or the name is taken: a CHARSND.2DA column or M_cdsnd.lua menu name `name`, or a
-// sound file the voice would write (warned; then nothing is changed).
-DEFINE_ACTION_FUNCTION hg_creature_voice
-  INT_VAR animation = 0
-          display = 0 - 1
+// A curated player voice set `name` (1-6 characters) from sound clips the game already
+// has, registered with the EE Soundset Tool's cd_add_soundset (cd_add_soundset.tph, kept
+// unchanged next to this library). Each STR_VAR clip_<slot> names the clip (a WAV
+// resource) for one of the tool's slots, e.g. clip_action1 = ~HOBGL03~; one clip may serve
+// several slots. Each filled slot gets its own copy of its clip under the tool's file name
+// for the slot: the name plus one character into lang/<language>/sounds (the voice menu
+// lists the voices found there), plus two characters into override. Its line is the game's
+// own subtitle for the clip (hg_tlk_clip_texts) with that copy as sound; `tra` is a
+// scratch file in the mod folder for these lines. A clip the game lacks leaves its slots
+// empty (warned). Returns the filled slots; 0 (warned, nothing changed) when CHARSND.2DA
+// lacks the 99 numbered rows, when the name is taken (a CHARSND.2DA column, an M_cdsnd.lua
+// menu name or a sound file the voice would write), or when no clip fills a one-character
+// slot (the menu would not list the voice). Damage 2 and 3 are not offered: the tool drops
+// them, as they make the damage line play only part of the time.
+DEFINE_ACTION_FUNCTION hg_clip_voice
+  INT_VAR display = 0 - 1
   STR_VAR name = ~~
           tra = ~~
+          clip_action1 = ~~
+          clip_action2 = ~~
+          clip_action3 = ~~
+          clip_action4 = ~~
+          clip_action5 = ~~
+          clip_action6 = ~~
+          clip_action7 = ~~
+          clip_action_rare1 = ~~
+          clip_action_rare2 = ~~
+          clip_attack1 = ~~
+          clip_attack2 = ~~
+          clip_attack3 = ~~
+          clip_attack4 = ~~
+          clip_battlecry1 = ~~
+          clip_battlecry2 = ~~
+          clip_battlecry3 = ~~
+          clip_battlecry4 = ~~
+          clip_battlecry5 = ~~
+          clip_bored1 = ~~
+          clip_bored2 = ~~
+          clip_breaking_pt = ~~
+          clip_city = ~~
+          clip_common1 = ~~
+          clip_common2 = ~~
+          clip_common3 = ~~
+          clip_common4 = ~~
+          clip_common5 = ~~
+          clip_common6 = ~~
+          clip_common7 = ~~
+          clip_criticalhit = ~~
+          clip_criticalmiss = ~~
+          clip_damage1 = ~~
+          clip_day = ~~
+          clip_disrupted = ~~
+          clip_dungeon = ~~
+          clip_dying1 = ~~
+          clip_dying2 = ~~
+          clip_forest = ~~
+          clip_gen_death1 = ~~
+          clip_gen_death2 = ~~
+          clip_happy = ~~
+          clip_hurt1 = ~~
+          clip_hurt2 = ~~
+          clip_immune = ~~
+          clip_inventory = ~~
+          clip_leader1 = ~~
+          clip_leader2 = ~~
+          clip_morale_break1 = ~~
+          clip_morale_break2 = ~~
+          clip_night = ~~
+          clip_pickpocket = ~~
+          clip_select_rare1 = ~~
+          clip_select_rare2 = ~~
+          clip_select_rare3 = ~~
+          clip_select_rare4 = ~~
+          clip_shadows = ~~
+          clip_tired1 = ~~
+          clip_tired2 = ~~
+          clip_trap = ~~
+          clip_unhappy_1 = ~~
+          clip_unhappy_2 = ~~
   RET slots
 BEGIN
   ACTION_IF (STRING_LENGTH ~%name%~ < 1) OR (STRING_LENGTH ~%name%~ > 6) BEGIN
-    FAIL ~hg_creature_voice: voice name "%name%" needs 1-6 characters (file names add up to two).~
+    FAIL ~hg_clip_voice: voice name "%name%" needs 1-6 characters (file names add up to two).~
+  END
+  ACTION_TO_UPPER name
+  // The tool's slots and the file name suffix it gives each (cd_add_soundset.tph).
+  ACTION_DEFINE_ASSOCIATIVE_ARRAY hgc_suffix BEGIN
+    action1 => i          action2 => j          action3 => k          action4 => s
+    action5 => t          action6 => u          action7 => v          action_rare1 => x
+    action_rare2 => y     attack1 => c_         attack2 => d_         attack3 => e_
+    attack4 => f_         battlecry1 => a       battlecry2 => 8       battlecry3 => 9
+    battlecry4 => g_      battlecry5 => h_      bored1 => d           bored2 => i_
+    breaking_pt => j_     city => o             common1 => f          common2 => g
+    common3 => h          common4 => 0          common5 => k_         common6 => l_
+    common7 => m_         criticalhit => z      criticalmiss => 1     damage1 => l
+    day => q              disrupted => 6        dungeon => p          dying1 => m
+    dying2 => p_          forest => n           gen_death1 => w       gen_death2 => q_
+    happy => r_           hurt1 => e            hurt2 => s_           immune => 2
+    inventory => 3        leader1 => b          leader2 => t_         morale_break1 => u_
+    morale_break2 => v_   night => r            pickpocket => 4       select_rare1 => w_
+    select_rare2 => x_    select_rare3 => y_    select_rare4 => z_    shadows => 5
+    tired1 => c           tired2 => 4_          trap => 7             unhappy_1 => 5_
+    unhappy_2 => 6_
   END
   OUTER_SET slots = 0
   OUTER_SET ok = 0
@@ -525,141 +647,154 @@ BEGIN
     COPY_EXISTING - ~m_cdsnd.lua~ ~override~
       LPF hg_menu_named STR_VAR name RET named END
   END
+  // The filled slots: their files, files that exist already, clips the game lacks.
+  OUTER_SPRINT clash ~~
+  OUTER_SPRINT missing ~~
+  OUTER_SPRINT wanted ~~
+  OUTER_SET listed = 0
+  ACTION_PHP_EACH hgc_suffix AS slot => suffix BEGIN
+    OUTER_SPRINT clip $clip(~%slot%~)
+    OUTER_SPRINT $hgc_file(~%slot%~) ~~
+    OUTER_SET $hgc_ref(~%slot%~) = 0 - 1
+    ACTION_IF NOT (~%clip%~ STRING_EQUAL ~~) BEGIN
+      ACTION_IF FILE_EXISTS_IN_GAME ~%clip%.wav~ BEGIN
+        OUTER_SPRINT file ~%name%%suffix%~
+        OUTER_SPRINT $hgc_file(~%slot%~) ~%file%~
+        OUTER_SPRINT wanted ~%wanted% %clip%~
+        ACTION_IF (STRING_LENGTH ~%suffix%~ = 1) BEGIN
+          OUTER_SET listed += 1
+        END
+        ACTION_IF FILE_EXISTS_IN_GAME ~%file%.wav~ OR FILE_EXISTS ~lang/%EE_LANGUAGE%/sounds/%file%.wav~ BEGIN
+          OUTER_SPRINT clash ~%file%.wav~
+        END
+      END ELSE BEGIN
+        OUTER_SPRINT missing ~%missing% %clip% (%slot%)~
+      END
+    END
+  END
   ACTION_IF NOT ok BEGIN
     WARN ~CHARSND.2DA is missing or lacks the 99 numbered rows the engine expects; no %name% voice set.~
   END ELSE ACTION_IF present OR named BEGIN
     WARN ~The voice name %name% is taken (CHARSND.2DA column or M_cdsnd.lua menu name); no voice set.~
-  END ELSE BEGIN
-    LAF hg_creature_voice_build INT_VAR animation display STR_VAR name tra RET slots END
-  END
-END
-
-// The body of hg_creature_voice, once CHARSND.2DA is known to take the voice set.
-DEFINE_ACTION_FUNCTION hg_creature_voice_build
-  INT_VAR animation = 0
-          display = 0 - 1
-  STR_VAR name = ~~
-          tra = ~~
-  RET slots
-BEGIN
-  OUTER_SET slots = 0
-  OUTER_FOR (r = 1; r < 35; ++r) BEGIN
-    OUTER_SET $hgv_n(~%r%~) = 0
-    OUTER_SET $hgv_ref(~%r%~) = 0 - 1
-    OUTER_SPRINT $hgv_snd(~%r%~) ~~
-    OUTER_SET $hgv_col(~%r%~) = 0 - 1
-  END
-  // Vote per slot; ties go to the lower strref.
-  COPY_EXISTING_REGEXP GLOB ~^.+\.cre$~ ~override~
-    PATCH_IF (BUFFER_LENGTH >= 0x234) BEGIN
-      READ_ASCII 0 sig (8)
-      READ_SHORT 0x28 anim
-      PATCH_IF (~%sig%~ STRING_EQUAL ~CRE V1.0~) AND (anim = animation) BEGIN
-        FOR (r = 1; r < 35; ++r) BEGIN
-          READ_SLONG (0xa4 + r * 4) ref
-          PATCH_IF (ref > 0) BEGIN
-            PATCH_IF VARIABLE_IS_SET EVAL ~hgv_vote_%r%_%ref%~ BEGIN
-              SET $hgv_vote(~%r%~ ~%ref%~) = $hgv_vote(~%r%~ ~%ref%~) + 1
-            END ELSE BEGIN
-              SET $hgv_vote(~%r%~ ~%ref%~) = 1
-            END
-            SET n = $hgv_vote(~%r%~ ~%ref%~)
-            PATCH_IF (n > $hgv_n(~%r%~)) OR ((n = $hgv_n(~%r%~)) AND (ref < $hgv_ref(~%r%~))) BEGIN
-              SET $hgv_n(~%r%~) = n
-              SET $hgv_ref(~%r%~) = ref
-            END
-          END
-        END
-      END
-    END
-  BUT_ONLY
-  // Sounds of the chosen strings, read from the game's string table.
-  OUTER_SPRINT tlk ~lang/%EE_LANGUAGE%/dialog.tlk~
-  ACTION_IF NOT FILE_EXISTS ~%tlk%~ BEGIN OUTER_SPRINT tlk ~dialog.tlk~ END
-  ACTION_IF FILE_EXISTS ~%tlk%~ BEGIN
-    COPY - ~%tlk%~ ~override~
-      FOR (r = 1; r < 35; ++r) BEGIN
-        SET ref = $hgv_ref(~%r%~)
-        PATCH_IF (ref > 0) BEGIN
-          LPF hg_tlk_sound INT_VAR strref = ref RET sound END
-          SPRINT $hgv_snd(~%r%~) ~%sound%~
-        END
-      END
-  END
-  // Classic file name character(s) per sound slot, as the EE Soundset Tool assigns them.
-  ACTION_DEFINE_ASSOCIATIVE_ARRAY hgv_suffix BEGIN
-     1 => u_   2 => r_   3 => 5_   4 => 6_   5 => j_   6 => b    7 => c    8 => d
-     9 => a   10 => 8   11 => 9   12 => g_  13 => h_  14 => c_  15 => d_  16 => e_
-    17 => f_  18 => l   19 => m   20 => e   21 => n   22 => o   23 => p   24 => q
-    25 => r   26 => f   27 => g   28 => h   29 => 0   30 => k_  31 => l_  32 => i
-    33 => j   34 => k
-  END
-  // The voice's sound files: one per chosen line that has a sound file (a line without
-  // one is silent in the game as well). None of them may exist yet: that would be another
-  // voice's sound.
-  OUTER_SPRINT clash ~~
-  OUTER_FOR (r = 1; r < 35; ++r) BEGIN
-    OUTER_SPRINT snd $hgv_snd(~%r%~)
-    OUTER_SPRINT $hgv_file(~%r%~) ~~
-    ACTION_IF NOT (~%snd%~ STRING_EQUAL ~~) AND FILE_EXISTS_IN_GAME ~%snd%.wav~ BEGIN
-      OUTER_SPRINT suffix $hgv_suffix(~%r%~)
-      OUTER_SPRINT file ~%name%%suffix%~
-      OUTER_SPRINT $hgv_file(~%r%~) ~%file%~
-      ACTION_IF FILE_EXISTS_IN_GAME ~%file%.wav~ OR FILE_EXISTS ~lang/%EE_LANGUAGE%/sounds/%file%.wav~ BEGIN
-        OUTER_SPRINT clash ~%file%.wav~
-      END
-    END
-  END
-  ACTION_IF NOT (~%clash%~ STRING_EQUAL ~~) BEGIN
+  END ELSE ACTION_IF NOT (~%clash%~ STRING_EQUAL ~~) BEGIN
     WARN ~A sound file %clash% exists already; no %name% voice set.~
+  END ELSE ACTION_IF (listed = 0) BEGIN
+    WARN ~No clip of the %name% voice set fills a one-character slot, so the voice menu would not list it; no voice set.~
   END ELSE BEGIN
-    // Copy each line's sound under the voice's file name, and write the clean subtitle with
-    // that sound into a TRA file.
+    ACTION_IF NOT (~%missing%~ STRING_EQUAL ~~) BEGIN
+      WARN ~The game lacks these %name% voice clips, so their slots stay empty:%missing%~
+    END
+    // The game's own subtitles for the clips.
+    ACTION_CLEAR_ARRAY hgc_text
+    OUTER_SPRINT tlk ~lang/%EE_LANGUAGE%/dialog.tlk~
+    ACTION_IF NOT FILE_EXISTS ~%tlk%~ BEGIN
+      OUTER_SPRINT tlk ~dialog.tlk~
+    END
+    ACTION_IF FILE_EXISTS ~%tlk%~ BEGIN
+      COPY - ~%tlk%~ ~override~
+        LPF hg_tlk_clip_texts STR_VAR clips = EVAL ~%wanted%~ RET_ARRAY hgc_text = texts END
+    END
+    // Copy each slot's clip under its file name; one line per slot in the scratch TRA.
     OUTER_SPRINT lines ~~
-    OUTER_FOR (r = 1; r < 35; ++r) BEGIN
-      OUTER_SPRINT file $hgv_file(~%r%~)
+    OUTER_SET id = 1000
+    ACTION_PHP_EACH hgc_suffix AS slot => suffix BEGIN
+      OUTER_SPRINT file $hgc_file(~%slot%~)
       ACTION_IF NOT (~%file%~ STRING_EQUAL ~~) BEGIN
-        OUTER_SPRINT snd $hgv_snd(~%r%~)
-        OUTER_SPRINT suffix $hgv_suffix(~%r%~)
+        OUTER_SPRINT clip $clip(~%slot%~)
         ACTION_IF (STRING_LENGTH ~%suffix%~ = 1) BEGIN
-          COPY_EXISTING ~%snd%.wav~ ~lang/%EE_LANGUAGE%/sounds/%file%.wav~
+          COPY_EXISTING ~%clip%.wav~ ~lang/%EE_LANGUAGE%/sounds/%file%.wav~
         END ELSE BEGIN
-          COPY_EXISTING ~%snd%.wav~ ~override/%file%.wav~
+          COPY_EXISTING ~%clip%.wav~ ~override/%file%.wav~
         END
-        OUTER_SET ref = $hgv_ref(~%r%~)
-        ACTION_GET_STRREF ref text
-        OUTER_PATCH_SAVE text ~%text%~ BEGIN
-          REPLACE_TEXTUALLY ~^[[][^]]*[]] *~ ~~
-          REPLACE_TEXTUALLY "~" ""
+        ACTION_TO_UPPER clip
+        OUTER_SPRINT text ~~
+        ACTION_IF VARIABLE_IS_SET EVAL ~hgc_text_%clip%~ BEGIN
+          OUTER_SPRINT text $hgc_text(~%clip%~)
         END
-        OUTER_SET id = 1000 + r
+        OUTER_SET id += 1
+        OUTER_SET $hgc_id(~%slot%~) = id
         OUTER_SPRINT lines ~~~~~%lines%@%id% = ~%text%~ [%file%]%WNL%~~~~~
       END
     END
-    ACTION_IF NOT (~%lines%~ STRING_EQUAL ~~) BEGIN
-      <<<<<<<< .../cbpr-inlined/voice.tra
+    <<<<<<<< .../cbpr-inlined/voice.tra
 >>>>>>>>
-      COPY ~.../cbpr-inlined/voice.tra~ ~%tra%~
-        INSERT_BYTES 0 (STRING_LENGTH ~%lines%~)
-        WRITE_ASCIIE 0 ~%lines%~
-      LOAD_TRA ~%tra%~
-      OUTER_FOR (r = 1; r < 35; ++r) BEGIN
-        OUTER_SPRINT file $hgv_file(~%r%~)
-        ACTION_IF NOT (~%file%~ STRING_EQUAL ~~) BEGIN
-          OUTER_SET id = 1000 + r
-          OUTER_SET $hgv_col(~%r%~) = RESOLVE_STR_REF ((AT ~%id%~))
-          OUTER_SET slots += 1
-        END
+    COPY ~.../cbpr-inlined/voice.tra~ ~%tra%~
+      INSERT_BYTES 0 (STRING_LENGTH ~%lines%~)
+      WRITE_ASCIIE 0 ~%lines%~
+    LOAD_TRA ~%tra%~
+    ACTION_PHP_EACH hgc_suffix AS slot => suffix BEGIN
+      OUTER_SPRINT file $hgc_file(~%slot%~)
+      ACTION_IF NOT (~%file%~ STRING_EQUAL ~~) BEGIN
+        OUTER_SET id = $hgc_id(~%slot%~)
+        OUTER_SET $hgc_ref(~%slot%~) = RESOLVE_STR_REF ((AT ~%id%~))
+        OUTER_SET slots += 1
       END
     END
-    ACTION_IF (slots > 0) BEGIN
-      OUTER_SPRINT values ~~
-      OUTER_FOR (r = 1; r <= 99; ++r) BEGIN
-        OUTER_SET v = (r < 35) ? $hgv_col(~%r%~) : (0 - 1)
-        OUTER_SPRINT values ~%values% %v%~
-      END
-      LAF hg_add_voice_set INT_VAR display STR_VAR name values RET ok END
-      ACTION_IF NOT ok BEGIN OUTER_SET slots = 0 END
+    LAF cd_add_soundset
+      INT_VAR
+      cd_action1 = hgc_ref_action1
+      cd_action2 = hgc_ref_action2
+      cd_action3 = hgc_ref_action3
+      cd_action4 = hgc_ref_action4
+      cd_action5 = hgc_ref_action5
+      cd_action6 = hgc_ref_action6
+      cd_action7 = hgc_ref_action7
+      cd_action_rare1 = hgc_ref_action_rare1
+      cd_action_rare2 = hgc_ref_action_rare2
+      cd_attack1 = hgc_ref_attack1
+      cd_attack2 = hgc_ref_attack2
+      cd_attack3 = hgc_ref_attack3
+      cd_attack4 = hgc_ref_attack4
+      cd_battlecry1 = hgc_ref_battlecry1
+      cd_battlecry2 = hgc_ref_battlecry2
+      cd_battlecry3 = hgc_ref_battlecry3
+      cd_battlecry4 = hgc_ref_battlecry4
+      cd_battlecry5 = hgc_ref_battlecry5
+      cd_bored1 = hgc_ref_bored1
+      cd_bored2 = hgc_ref_bored2
+      cd_breaking_pt = hgc_ref_breaking_pt
+      cd_city = hgc_ref_city
+      cd_common1 = hgc_ref_common1
+      cd_common2 = hgc_ref_common2
+      cd_common3 = hgc_ref_common3
+      cd_common4 = hgc_ref_common4
+      cd_common5 = hgc_ref_common5
+      cd_common6 = hgc_ref_common6
+      cd_common7 = hgc_ref_common7
+      cd_criticalhit = hgc_ref_criticalhit
+      cd_criticalmiss = hgc_ref_criticalmiss
+      cd_damage1 = hgc_ref_damage1
+      cd_day = hgc_ref_day
+      cd_disrupted = hgc_ref_disrupted
+      cd_dungeon = hgc_ref_dungeon
+      cd_dying1 = hgc_ref_dying1
+      cd_dying2 = hgc_ref_dying2
+      cd_forest = hgc_ref_forest
+      cd_gen_death1 = hgc_ref_gen_death1
+      cd_gen_death2 = hgc_ref_gen_death2
+      cd_happy = hgc_ref_happy
+      cd_hurt1 = hgc_ref_hurt1
+      cd_hurt2 = hgc_ref_hurt2
+      cd_immune = hgc_ref_immune
+      cd_inventory = hgc_ref_inventory
+      cd_leader1 = hgc_ref_leader1
+      cd_leader2 = hgc_ref_leader2
+      cd_morale_break1 = hgc_ref_morale_break1
+      cd_morale_break2 = hgc_ref_morale_break2
+      cd_night = hgc_ref_night
+      cd_pickpocket = hgc_ref_pickpocket
+      cd_select_rare1 = hgc_ref_select_rare1
+      cd_select_rare2 = hgc_ref_select_rare2
+      cd_select_rare3 = hgc_ref_select_rare3
+      cd_select_rare4 = hgc_ref_select_rare4
+      cd_shadows = hgc_ref_shadows
+      cd_tired1 = hgc_ref_tired1
+      cd_tired2 = hgc_ref_tired2
+      cd_trap = hgc_ref_trap
+      cd_unhappy_1 = hgc_ref_unhappy_1
+      cd_unhappy_2 = hgc_ref_unhappy_2
+      cd_select_name = display
+      STR_VAR cd_name = EVAL ~%name%~
     END
   END
 END
@@ -673,50 +808,6 @@ BEGIN
   COUNT_REGEXP_INSTANCES CASE_SENSITIVE EVALUATE_REGEXP
     ~^[ %TAB%]*filenames_stringrefs[ %TAB%]*\[[ %TAB%]*['"]%name%['"][ %TAB%]*\]~ n
   SET named = (n > 0)
-END
-
-// Register player voice set `name` the way the EE Soundset Tool does: a CHARSND.2DA column
-// with `values` (strrefs for rows 1-99, -1 = none) and the menu name `display` in
-// M_cdsnd.lua, which other voice packs share (only our line is added, and only when no line
-// names `name` yet). Returns 1 when the voice set is registered, 0 when CHARSND.2DA has an
-// unexpected layout (warned). A column of that name that is already there is kept as it is.
-DEFINE_ACTION_FUNCTION hg_add_voice_set
-  INT_VAR display = 0 - 1
-  STR_VAR name = ~~
-          values = ~~
-  RET ok
-BEGIN
-  OUTER_SET ok = 0
-  OUTER_SET present = 0
-  ACTION_IF FILE_EXISTS_IN_GAME ~charsnd.2da~ BEGIN
-    COPY_EXISTING - ~charsnd.2da~ ~override~
-      LPF hg_charsnd_check STR_VAR name RET ok present END
-  END
-  ACTION_IF NOT ok BEGIN
-    WARN ~CHARSND.2DA is missing or lacks the 99 numbered rows the engine expects; no %name% voice set.~
-  END ELSE BEGIN
-    ACTION_IF present BEGIN
-      WARN ~CHARSND.2DA already has a %name% column; kept it.~
-    END ELSE BEGIN
-      APPEND_COL ~charsnd.2da~ ~$ $ %name%%values%~
-      COPY_EXISTING ~charsnd.2da~ ~override~
-        PRETTY_PRINT_2DA
-    END
-    ACTION_IF FILE_EXISTS_IN_GAME ~m_cdsnd.lua~ BEGIN
-      OUTER_SET named = 0
-      COPY_EXISTING - ~m_cdsnd.lua~ ~override~
-        LPF hg_menu_named STR_VAR name RET named END
-      ACTION_IF NOT named BEGIN
-        APPEND ~m_cdsnd.lua~ ~filenames_stringrefs['%name%'] = {%display%, 2}~
-      END
-    END ELSE BEGIN
-      <<<<<<<< .../cbpr-inlined/M_cdsnd.lua
-filenames_stringrefs['%name%'] = {%display%, 2}
->>>>>>>>
-      COPY ~.../cbpr-inlined/M_cdsnd.lua~ ~override~
-        EVALUATE_BUFFER
-    END
-  END
 END
 
 // Upper-case letter (A-Z) for a character code; empty when it is not a letter.
