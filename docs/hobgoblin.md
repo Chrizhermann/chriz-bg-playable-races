@@ -95,6 +95,16 @@ Findings from the lab (EET on BG2:EE 2.7.3.0, EEex for inspection only), 2026-10
   protagonist the voice set's strings in slots 1-34, also after saving and loading.
 - `move_scale` 9 walked about 8 % slower on this body than a human character animation at
   the same value (96.5 against 105.3 pixels per second). The vanilla `8100.ini` uses 5.
+- Uninstall (lab run 12, 2026-10-18, with the test package): the install changed 1,560
+  override files and added 146 (140 in `override`, 6 sounds in `lang/en_US/sounds`).
+  After the uninstall, all 165,141 files of the game folder matched the state before the
+  install, except WeiDU's `.DEBUG` log. A fresh install appends ten strings to
+  `dialog.tlk` (the race description, `HOBGOBLIN`, the ability's name and description,
+  six voice lines); they stay after an uninstall, unused. A save made after the
+  transformation still loads without the component, and the inventory and record screens
+  open. The protagonist keeps animation `0x8101`, which the game then draws as the plain
+  hobgoblin with the vanilla `move_scale` 5. The inventory figure is empty, the race has
+  no name, and the voice slots point to strings whose sound files are gone.
 
 ## Tests
 

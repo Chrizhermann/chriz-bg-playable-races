@@ -66,7 +66,18 @@ Not done yet:
 
 Install it after mods that add weapons or armour, so that their items get the hobgoblin
 looks too. The transformation cannot be undone in the game, so save before you use the
-ability. The component needs the game's hobgoblin animation (`8100.ini`, `MHOB*.BAM`) and
+ability.
+
+To remove it, run `setup-chriz-bg-playable-races.exe` again and choose Uninstall, before
+you install other mods on top. WeiDU puts back every file the component changed and
+deletes the ones it added (keep the `chriz-bg-playable-races` folder until then: it holds
+the backup). In a lab check on a copy of a full EET install, all game files matched their
+state before the install afterwards. Left over were WeiDU's own `.DEBUG` log, a comment in
+`WeiDU.log` and the component's ten strings in `dialog.tlk`, which nothing uses any more.
+Saves made while the component was installed keep its changes: after an uninstall, a
+transformed protagonist stays a hobgoblin, with the plain hobgoblin sprite, no inventory
+figure, no race name and a silent voice. So back up your save folder before you try the
+component, and put it back after an uninstall. The component needs the game's hobgoblin animation (`8100.ini`, `MHOB*.BAM`) and
 stops with a message when it is missing. EEex is not required; the lab uses it only for
 testing.
 
