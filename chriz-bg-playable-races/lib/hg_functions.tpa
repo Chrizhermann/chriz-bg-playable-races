@@ -1,0 +1,279 @@
+// Helper functions for the hobgoblin protagonist prototype.
+
+// Four-digit upper-case hex text of a non-negative integer (animation slot -> INI name).
+DEFINE_ACTION_FUNCTION hg_hex4
+  INT_VAR value = 0
+  RET hex
+BEGIN
+  OUTER_SPRINT hex ~~
+  OUTER_SET rest = value
+  OUTER_FOR (i = 0; i < 4; ++i) BEGIN
+    OUTER_SET d = rest MODULO 16
+    OUTER_SET rest = rest / 16
+    OUTER_PATCH ~0123456789ABCDEF~ BEGIN
+      READ_ASCII d digit (1)
+    END
+    OUTER_SPRINT hex ~%digit%%hex%~
+  END
+  ACTION_IF rest != 0 BEGIN
+    FAIL ~hg_hex4: %value% does not fit in four hex digits~
+  END
+END
+
+// First animation slot in [slot_min, slot_max) that has neither an ANIMATE.IDS symbol
+// nor an INI resource. Returns -1 when the range is full.
+DEFINE_ACTION_FUNCTION hg_find_free_anim_slot
+  INT_VAR slot_min = 0
+          slot_max = 0
+  RET slot
+BEGIN
+  ACTION_IF slot_max <= slot_min BEGIN
+    OUTER_SET slot_max = (slot_min BAND 0xF000) + 0x1000
+  END
+  OUTER_SET slot = 0 - 1
+  OUTER_FOR (idx = slot_min; idx < slot_max; ++idx) BEGIN
+    OUTER_PATCH ~~ BEGIN
+      LOOKUP_IDS_SYMBOL_OF_INT name ~animate~ idx
+    END
+    ACTION_IF (~%name%~ STRING_EQUAL ~%idx%~) BEGIN
+      LAF hg_hex4 INT_VAR value = idx RET hex END
+      ACTION_IF NOT FILE_EXISTS_IN_GAME ~%hex%.ini~ BEGIN
+        OUTER_SET slot = idx
+        OUTER_SET idx = slot_max
+      END
+    END
+  END
+END
+
+// Turn a BAMC (zlib) buffer into a plain BAM V1 buffer; fail on anything else.
+DEFINE_PATCH_FUNCTION hg_bam_decompress BEGIN
+  READ_ASCII 0 sig (8)
+  PATCH_IF (~%sig%~ STRING_EQUAL ~BAMCV1  ~) BEGIN
+    READ_LONG 8 ulen
+    DECOMPRESS_REPLACE_FILE 12 (BUFFER_LENGTH - 12) ulen
+    READ_ASCII 0 sig (8)
+  END
+  PATCH_IF NOT (~%sig%~ STRING_EQUAL ~BAM V1  ~) BEGIN
+    PATCH_FAIL ~%SOURCE_FILE% is not a BAM V1/BAMC file (signature "%sig%")~
+  END
+END
+
+// Point cycles [to, to+count) at the same frames as cycles [from, from+count).
+DEFINE_PATCH_FUNCTION hg_bam_copy_cycles
+  INT_VAR from = 0
+          to = 16
+          count = 8
+BEGIN
+  READ_SHORT 0x08 nfr
+  READ_BYTE  0x0a ncy
+  READ_LONG  0x0c fo
+  PATCH_IF ((from + count > ncy) OR (to + count > ncy)) BEGIN
+    PATCH_FAIL ~%SOURCE_FILE% has %ncy% cycles; cannot map cycles %from%+%count% to %to%~
+  END
+  FOR (i = 0; i < count; ++i) BEGIN
+    READ_LONG (fo + nfr * 12 + (from + i) * 4) entry
+    WRITE_LONG (fo + nfr * 12 + (to + i) * 4) entry
+  END
+END
+
+// Copy one game BAM to a new name, decompressed, optionally mapping the two-handed
+// attack cycles (16-23) onto the one-handed slash cycles (0-7).
+DEFINE_ACTION_FUNCTION hg_copy_bam
+  INT_VAR remap_2h = 0
+  STR_VAR src = ~~
+          dst = ~~
+BEGIN
+  COPY_EXISTING ~%src%.bam~ ~override/%dst%.bam~
+    LPF hg_bam_decompress END
+    PATCH_IF remap_2h BEGIN
+      LPF hg_bam_copy_cycles INT_VAR from = 0 to = 16 count = 8 END
+    END
+END
+
+// Write one EFF V2.0 file applying opcode 53 (animation change) while equipped.
+// kind 2 mirrors the engine's own item-driven animation switches (SoD M'Khiin).
+// The parent resource must name the EFF itself, as in CDMK25.EFF: opcode 318/206
+// immunities match the applied effect's parent resource, so without it the item's
+// op318 guard never blocks and every wielder changes sprite (lab-verified).
+DEFINE_ACTION_FUNCTION hg_make_anim_eff
+  INT_VAR anim = 0
+          kind = 2
+  STR_VAR name = ~~
+BEGIN
+  LAF hg_make_eq_eff INT_VAR opcode = 53 parameter1 = anim parameter2 = kind STR_VAR name END
+END
+
+// Write one EFF V2.0 file holding a single self-targeted effect (default: while equipped)
+// whose parent resource is the EFF itself (see hg_make_anim_eff for why the parent matters).
+DEFINE_ACTION_FUNCTION hg_make_eq_eff
+  INT_VAR opcode = 0
+          parameter1 = 0
+          parameter2 = 0
+          timing = 2
+          duration = 0
+  STR_VAR name = ~~
+          resource = ~~
+BEGIN
+  OUTER_SPRINT parent ~%name%~
+  ACTION_TO_UPPER ~parent~
+  OUTER_SET len = STRING_LENGTH ~%name%~
+  ACTION_IF (len < 1) OR (len > 8) BEGIN
+    FAIL ~hg_make_eq_eff: "%name%" is not a valid resource name~
+  END
+  CREATE ~EFF~ ~%name%~
+    WRITE_LONG 0x10 opcode
+    WRITE_LONG 0x14 1       // target: self
+    WRITE_LONG 0x1c parameter1
+    WRITE_LONG 0x20 parameter2
+    WRITE_SHORT 0x24 timing
+    WRITE_LONG 0x28 duration
+    WRITE_SHORT 0x2c 100    // probability 1
+    WRITE_SHORT 0x2e 0      // probability 2
+    PATCH_IF NOT (~%resource%~ STRING_EQUAL ~~) BEGIN
+      WRITE_ASCIIE 0x30 ~%resource%~ #8
+    END
+    WRITE_LONG 0x90 1       // parent resource type: spell
+    WRITE_ASCIIE 0x94 ~%parent%~ #8   // parent resource: this EFF
+END
+
+// Give the current ITM one PC-only switch: an equipped effect applies the EFF while the item
+// is equipped, op318 in front of it shields every creature without the marker spell state.
+// Default op177 runs the EFF's effect inside itself every tick (fine for opcode 53, but colour
+// changes made that way never show); op272 (apply_p1 = 1, apply_p2 = 0: once per second)
+// attaches the EFF to the creature instead. op318 does not stop op272 (lab run 5), so an
+// op272 EFF has to check the creature itself and is added with guard = 0.
+// Skips an item that already carries this switch.
+DEFINE_PATCH_FUNCTION hg_add_switch
+  INT_VAR splstate = 0
+          splprot_row = 0
+          guard = 1
+          apply_opcode = 177
+          apply_p1 = 0
+          apply_p2 = 2
+  STR_VAR eff = ~~
+BEGIN
+  READ_LONG  0x6a fx_off
+  READ_SHORT 0x6e fx_idx
+  READ_SHORT 0x70 fx_n
+  SET done = 0
+  FOR (i = 0; i < fx_n; ++i) BEGIN
+    READ_SHORT (fx_off + (fx_idx + i) * 0x30) op
+    READ_ASCII (fx_off + (fx_idx + i) * 0x30 + 0x14) res (8) NULL
+    PATCH_IF (op = apply_opcode) AND (~%res%~ STRING_EQUAL_CASE ~%eff%~) BEGIN SET done = 1 END
+  END
+  PATCH_IF NOT done BEGIN
+    // ADD_ITEM_EQEFFECT inserts at the top of the list: add the switch first so the
+    // guard ends up in front of it, as in the installed M'Khiin weapons.
+    LPF ADD_ITEM_EQEFFECT INT_VAR opcode = apply_opcode target = 1 timing = 2 parameter1 = apply_p1
+      parameter2 = apply_p2 STR_VAR resource = EVAL ~%eff%~ END
+    PATCH_IF guard BEGIN
+      LPF ADD_ITEM_EQEFFECT INT_VAR opcode = 318 target = 1 timing = 2 parameter1 = splstate
+        parameter2 = splprot_row STR_VAR resource = EVAL ~%eff%~ END
+    END
+  END
+END
+
+// 0-based SPLPROT.2DA data row for (stat, value, relation), the first match; appends a row
+// labelled `label` when the table has none. Rows with a non-numeric cell never match.
+DEFINE_ACTION_FUNCTION hg_splprot_row
+  INT_VAR stat = 0
+          value = 0
+          relation = 0
+  STR_VAR label = ~~
+  RET row
+BEGIN
+  OUTER_SET row = 0 - 1
+  COPY_EXISTING ~splprot.2da~ ~override~
+    COUNT_2DA_ROWS 4 nrows
+    FOR (r = 0; r < nrows; ++r) BEGIN
+      READ_2DA_ENTRY r 1 4 st
+      READ_2DA_ENTRY r 2 4 va
+      READ_2DA_ENTRY r 3 4 re
+      PATCH_IF (row < 0) AND (IS_AN_INT st) AND (IS_AN_INT va) AND (IS_AN_INT re) BEGIN
+        PATCH_IF (st = stat) AND (va = value) AND (re = relation) BEGIN
+          SET row = r
+        END
+      END
+    END
+    PATCH_IF (row < 0) BEGIN
+      INSERT_2DA_ROW nrows 4 ~%label% %stat% %value% %relation%~
+      SET row = nrows
+    END
+  BUT_ONLY
+END
+
+// Innate spell, nameless, that gives its target the metal and armor colour ranges `metal`
+// and the major range `cloak` for `duration` seconds. Meant for opcode 326, which applies it
+// to its own target; its effects use target 2 like the game's own op326 spells (BDBOW04).
+DEFINE_ACTION_FUNCTION hg_make_colour_spl
+  INT_VAR metal = 0
+          cloak = 0
+          duration = 3
+  STR_VAR name = ~~
+BEGIN
+  CREATE ~SPL~ ~%name%~
+    WRITE_LONG 0x08 (0 - 1)     // no names or descriptions
+    WRITE_LONG 0x0c (0 - 1)
+    WRITE_LONG 0x50 (0 - 1)
+    WRITE_LONG 0x54 (0 - 1)
+    WRITE_SHORT 0x1c 4          // innate
+    WRITE_LONG 0x34 1           // level 1
+    PATCH_IF (BUFFER_LENGTH != 0x72) BEGIN PATCH_FAIL ~unexpected new SPL size~ END
+    INSERT_BYTES 0x72 0x28      // one ability header
+    WRITE_LONG  0x64 0x72       // abilities offset
+    WRITE_SHORT 0x68 1          // abilities count
+    WRITE_LONG  0x6a 0x9a       // effects offset
+    WRITE_SHORT 0x6e 0          // casting effects index
+    WRITE_SHORT 0x70 0          // casting effects count
+    WRITE_BYTE  0x72 1          // ability form: standard
+    WRITE_SHORT 0x74 4          // location: innate
+    WRITE_BYTE  0x7e 5          // target: caster
+    WRITE_SHORT 0x82 1          // level
+    WRITE_SHORT 0x98 1          // projectile: none
+    LPF ADD_SPELL_EFFECT INT_VAR opcode = 7 target = 2 timing = 0 duration parameter1 = metal parameter2 = 0 END
+    LPF ADD_SPELL_EFFECT INT_VAR opcode = 7 target = 2 timing = 0 duration parameter1 = metal parameter2 = 5 END
+    LPF ADD_SPELL_EFFECT INT_VAR opcode = 7 target = 2 timing = 0 duration parameter1 = cloak parameter2 = 2 END
+END
+
+// Private animation INI derived from the installed hobgoblin INI: given walking speed,
+// body resref and the two weapon look codes it draws; no animation-level selection or
+// battle-cry voice (the PC's soundset owns those).
+DEFINE_ACTION_FUNCTION hg_make_ini
+  INT_VAR slot = 0
+          move = 9
+  STR_VAR body = ~~
+          w1 = ~~
+          w2 = ~~
+BEGIN
+  LAF hg_hex4 INT_VAR value = slot RET hex END
+  COPY_EXISTING ~8100.ini~ ~override/%hex%.ini~
+    COUNT_REGEXP_INSTANCES ~^resref[ %TAB%]*=~ n_resref
+    PATCH_IF (n_resref != 1) BEGIN
+      PATCH_FAIL ~8100.ini: expected exactly one "resref=" line, found %n_resref%~
+    END
+    REPLACE_TEXTUALLY ~^\(move_scale[ %TAB%]*=\)[^%MNL%%LNL%]*~ ~\1%move%~
+    REPLACE_TEXTUALLY ~^\(resref[ %TAB%]*=\)[^%MNL%%LNL%]*~ ~\1%body%~
+    COUNT_REGEXP_INSTANCES ~^resref_weapon1[ %TAB%]*=~ n_w1
+    PATCH_IF (n_w1 = 0) BEGIN
+      REPLACE_TEXTUALLY ~^\(resref[ %TAB%]*=[^%MNL%%LNL%]*\)~ ~\1%WNL%resref_weapon1=%w1%%WNL%resref_weapon2=%w2%~
+    END ELSE BEGIN
+      REPLACE_TEXTUALLY ~^\(resref_weapon1[ %TAB%]*=\)[^%MNL%%LNL%]*~ ~\1%w1%~
+      REPLACE_TEXTUALLY ~^\(resref_weapon2[ %TAB%]*=\)[^%MNL%%LNL%]*~ ~\1%w2%~
+    END
+    REPLACE_TEXTUALLY ~^\(selection[ %TAB%]*=\)[^%MNL%%LNL%]*~ ~\1~
+    REPLACE_TEXTUALLY ~^\(battle_cry[ %TAB%]*=\)[^%MNL%%LNL%]*~ ~\1~
+END
+
+// Upper-case letter (A-Z) for a character code; empty when it is not a letter.
+DEFINE_ACTION_FUNCTION hg_upper_letter
+  INT_VAR c = 0
+  RET letter
+BEGIN
+  OUTER_SET u = ((c >= 97) AND (c <= 122)) ? (c - 32) : c
+  OUTER_SPRINT letter ~~
+  ACTION_IF (u >= 65) AND (u <= 90) BEGIN
+    OUTER_PATCH ~ABCDEFGHIJKLMNOPQRSTUVWXYZ~ BEGIN
+      READ_ASCII (u - 65) letter (1)
+    END
+  END
+END

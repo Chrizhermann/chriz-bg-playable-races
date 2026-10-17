@@ -1,0 +1,24 @@
+# WeiDU artifacts
+chriz-bg-playable-races/backup/
+*.DEBUG
+*.BACKUP
+*.tbk
+weidu_external/
+weidu.log
+
+# WeiDU binaries (download per install)
+setup-*.exe
+WeiDU.exe
+weidu.exe
+
+# Files generated from a game's own data never enter the repository
+**/proto_generated/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.vscode/
+.idea/

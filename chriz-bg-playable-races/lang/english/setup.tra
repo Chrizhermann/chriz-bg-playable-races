@@ -1,0 +1,9 @@
+@1 = ~Hobgoblin protagonist (prototype)~
+@2 = ~This game has no hobgoblin animation (8100.ini / MHOB*.BAM); nothing to build from.~
+@3 = ~No free creature animation slot was found next to the hobgoblin slot.~
+@4 = ~RACE.IDS has no HOBGOBLIN entry.~
+@10 = ~Hobgoblin~
+@11 = ~HOBGOBLIN: Brutish, loud and proud of it. (Prototype description.)~
+@12 = ~HOBGOBLIN~
+@20 = ~Become a Hobgoblin~
+@5 = ~SPLSTATE.IDS has no free spell state (0-255) for the hobgoblin PC marker.~

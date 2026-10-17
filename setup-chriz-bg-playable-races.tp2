@@ -1,0 +1,19 @@
+// Chriz BG Playable Races: monster protagonists built at install time from the installed
+// game's own creature files. Ships no game art or audio.
+BACKUP ~chriz-bg-playable-races/backup~
+AUTHOR ~Chriz~
+VERSION ~v0.0.7-proto~
+
+ALWAYS
+  INCLUDE ~chriz-bg-playable-races/lib/hg_functions.tpa~
+END
+
+LANGUAGE ~English~ ~english~ ~chriz-bg-playable-races/lang/english/setup.tra~
+
+// Hobgoblin protagonist: the hobgoblin sprite with weapon and armour looks, race HOBGOBLIN.
+// Companions keep their own looks.
+BEGIN @1 DESIGNATED 100
+LABEL ~cbpr_hobgoblin_protagonist~
+REQUIRE_PREDICATE (FILE_EXISTS_IN_GAME ~8100.ini~ AND FILE_EXISTS_IN_GAME ~mhobg1.bam~
+                   AND FILE_EXISTS_IN_GAME ~mhobsg1.bam~ AND FILE_EXISTS_IN_GAME ~mhobbg1.bam~) @2
+INCLUDE ~chriz-bg-playable-races/hobgoblin/hobgoblin.tpa~
