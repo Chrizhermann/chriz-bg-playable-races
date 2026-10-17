@@ -1,0 +1,11 @@
+IF
+  Global("CBPR_HOBGOBLIN_GIVEN","GLOBAL",0)
+  InParty(Player1)
+  !StateCheck(Player1,STATE_REALLY_DEAD)
+  !CheckSpellState(Player1,%hg_splstate%)
+THEN
+  RESPONSE #100
+    SetGlobal("CBPR_HOBGOBLIN_GIVEN","GLOBAL",1)
+    ApplySpellRES("HGPCGIVE",Player1)
+    Continue()
+END

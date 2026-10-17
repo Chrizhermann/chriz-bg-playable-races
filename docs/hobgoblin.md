@@ -1,7 +1,8 @@
 # Hobgoblin protagonist (component 100)
 
 The component builds everything from the installed game: the hobgoblin animation INI
-`8100.ini`, the `MHOB*` sprite files, `HOBGOB.CRE` colours and the game's item list.
+`8100.ini`, the `MHOB*` sprite files, `HOBGOB.CRE` colours, the game's item list, the
+hobgoblin creatures' sound slots and the campaigns' world scripts.
 
 ## What the installer builds
 
@@ -32,9 +33,41 @@ The component builds everything from the installed game: the hobgoblin animation
    `HGA<code>.EFF` to the wearer once per second. That EFF's `op326` applies
    `HGA<code>.SPL` only to a creature with the marker state. The spell sets the metal and
    armor colour ranges, and for robes the cloak, for 3 seconds.
-8. **Transformation spell `HGPCXFRM`.** Permanent base animation (melee base INI), base
-   colours for skin, hair, leather and minor ranges from `HOBGOB.CRE`, race HOBGOBLIN and
-   the marker state.
+8. **Ability "Become a Hobgoblin" (`HGPCXFRM`).** An innate ability with the icons of the
+   installed Polymorph Self (`SPWI416`, when present). It sets the permanent base
+   animation (melee base INI), the base colours for skin, hair, leather and minor ranges
+   from `HOBGOB.CRE`, race HOBGOBLIN and the marker state, then removes itself (`op172`).
+9. **Handing out the ability.** A block on top of every world script that `CAMPAIGN.2DA`
+   names (EET: `BALDUR`, `BALDUR25`, `BDBALDUR`; `BALDUR.BCS` when the table names none)
+   applies `HGPCGIVE` (`op171`: learn `HGPCXFRM`) to Player1 once per game, when the
+   protagonist is in the party, alive and not yet a hobgoblin. The global
+   `CBPR_HOBGOBLIN_GIVEN` marks it as done, so new games and older saves both get it.
+10. **Inventory figure.** `HGPMINV.BAM` and `HGPRINV.BAM` from `MHOBG1.BAM`: frame 0 of
+    cycle 16 (standing, facing south) at twice the size, with the source palette, as a
+    two-frame BAM (figure and a 1x1 blank) with one cycle `0, 0, 1`. The centre `-4, -16`
+    is where the lab prototype sat right on the paperdoll. The blank pixel is the palette's
+    transparent colour (the first `RGB(0,255,0)` entry, else entry 0, as the engine picks
+    it) and the header keeps the source's RLE index, so a hobgoblin sprite from another
+    mod that uses other indices for them still gives a clean figure.
+11. **Voice set `CBPRHG`.** For each sound slot 1-34, the string most creatures with the
+    hobgoblin animation (`0x8100`) use, ties to the lower string number. A slot whose
+    chosen string has no sound file stays empty, as it is silent on those creatures too.
+    The voice is laid out like an EE Soundset Tool voice:
+    - Each chosen line's sound is copied as `CBPRHG` plus the slot's file character
+      (battle cry 1 `a`, damage `l`, dying `m`, select 1 `f`, ...) into
+      `lang/<language>/sounds`; two-character slots (`c_` for attack 1, ...) go to
+      `override`.
+    - Each line is resolved again with that sound and without a leading tag such as
+      `[HOBGOBLIN 01]`.
+    - The strings fill a `CHARSND.2DA` column, and `M_cdsnd.lua` gets the menu name
+      "Hobgoblin"; other voice packs' lines stay as they are. A name counts as taken
+      only on a line that sets `filenames_stringrefs['CBPRHG']` (either quote);
+      commented-out lines and longer names that contain it do not.
+
+    Rows 35 and up stay empty, because their meaning differs between BG:EE and BG2:EE.
+    Without a voice set, and with a warning, nothing copied and nothing changed: when
+    `CHARSND.2DA` lacks the 99 rows 1-99, or when the name is taken already (a `CBPRHG`
+    column, a `CBPRHG` menu name in `M_cdsnd.lua`, or one of the sound files).
 
 ## Why it is built this way
 
@@ -54,15 +87,35 @@ Findings from the lab (EET on BG2:EE 2.7.3.0, EEex for inspection only), 2026-10
 - Every weapon carries its own switch. Without one, replacing the selected weapon could
   keep the previous weapon's sprite until the next weapon change.
 - Armour worn in a save made before the install had the new `op272` right after loading.
+- The voice menu lists the voices whose files lie in `lang/<language>/sounds` (42 file
+  prefixes there gave the 43 entries of the list); a `CHARSND.2DA` column and the
+  `M_cdsnd.lua` name alone do not show up. Hence the name limit: six characters plus a
+  file character or two make the eight a resource name may have. With the files there
+  (lab run 11), "Hobgoblin" appears in Record > Customize > Voice. Choosing it gives the
+  protagonist the voice set's strings in slots 1-34, also after saving and loading.
 - `move_scale` 9 walked about 8 % slower on this body than a human character animation at
   the same value (96.5 against 105.3 pixels per second). The vanilla `8100.ini` uses 5.
 
+## Tests
+
+`python tests/run_tests.py --weidu <weidu.exe>` runs the library's functions in small
+synthetic game folders (made-up tables, strings, creatures, scripts and sprites; no game
+needed):
+- world-script discovery, and the shipped `give_ability.baf` compiled on top of the world
+  scripts;
+- the `CHARSND.2DA` check, sound lookup and voice-set registration, also next to other
+  voice packs' menu lines;
+- the creature vote with its sound files, and the cases where no voice set may be made;
+- the inventory figure, also from sprites with other transparent and RLE indices;
+- a WeiDU parse check of the tp2 and every tpa, and the language file against every
+  `@N` the sources use.
+
+The tests include uninstall. Any WeiDU 249 or newer works, also a mod's `setup-*.exe`.
+
 ## Open
 
-- An in-game way to become a hobgoblin.
-- The inventory figure, built at install time from the game's files.
-- A voice set from the game's own hobgoblin lines.
+- A race in character creation, so the protagonist starts as a hobgoblin.
 - Graphics per weapon group.
-- A race in character creation.
+- More voice lines.
 - Before a release: check the `HG*` resource names (`HGPM*`, `HGPR*`, `HGE*`, `HGA*`,
-  `HGPCXFRM`) against other mods.
+  `HGPC*`) and the voice set name `CBPRHG` against other mods.

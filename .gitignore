@@ -22,3 +22,12 @@ desktop.ini
 *~
 .vscode/
 .idea/
+
+# Written by the installer
+chriz-bg-playable-races/hobgoblin/voice.tra
+
+# Python
+__pycache__/
+
+# Local test packages
+dist/

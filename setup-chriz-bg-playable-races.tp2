@@ -2,7 +2,7 @@
 // game's own creature files. Ships no game art or audio.
 BACKUP ~chriz-bg-playable-races/backup~
 AUTHOR ~Chriz~
-VERSION ~v0.0.7-proto~
+VERSION ~v0.1.0-proto~
 
 ALWAYS
   INCLUDE ~chriz-bg-playable-races/lib/hg_functions.tpa~
