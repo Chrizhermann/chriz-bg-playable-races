@@ -1,5 +1,24 @@
+// Created as the hobgoblin in this game's character creation (CBPR_HOBGOBLIN_CHARGEN 1, set
+// by cbprRaceSelect in UI.MENU): the protagonist becomes one at once.
 IF
   Global("CBPR_HOBGOBLIN_GIVEN","GLOBAL",0)
+  Global("CBPR_HOBGOBLIN_CHARGEN","GLOBAL",1)
+  InParty(Player1)
+  !StateCheck(Player1,STATE_REALLY_DEAD)
+  !CheckSpellState(Player1,%hg_splstate%)
+THEN
+  RESPONSE #100
+    SetGlobal("CBPR_HOBGOBLIN_GIVEN","GLOBAL",1)
+    ApplySpellRES("HGPCXNOW",Player1)
+    Continue()
+END
+
+// Not created in this game's character creation (CBPR_HOBGOBLIN_CHARGEN 0: imported, an older
+// save, a UI without the routed race choice): the one-use ability. Created with another race
+// (2): nothing.
+IF
+  Global("CBPR_HOBGOBLIN_GIVEN","GLOBAL",0)
+  Global("CBPR_HOBGOBLIN_CHARGEN","GLOBAL",0)
   InParty(Player1)
   !StateCheck(Player1,STATE_REALLY_DEAD)
   !CheckSpellState(Player1,%hg_splstate%)

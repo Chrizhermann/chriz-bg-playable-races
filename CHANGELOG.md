@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.2.0-proto (unreleased)
+
+- Hobgoblin in character creation: race lists in every campaign offer the hobgoblin, with
+  its own description and, where the UI builds the biography from `bioRaceData` (EET), its
+  own biography; the record screen names the race **Hobgoblin**. The engine creates only its
+  seven standard races (lab run 14b: race 111 got no class), so the choice creates a
+  character with the rules of a template race, and the world scripts turn the protagonist
+  into a hobgoblin as the game starts (`HGPCXNOW`).
+- Two subcomponents for the template race: 100, half-orc rules (classes, ability
+  adjustments and limits, thief skills); 101, human rules (any class; no dual-class once a
+  hobgoblin, lab run 16c). After the transformation the hobgoblin keeps the template race's
+  thief skill bonuses and has infravision, both as permanent effects of the transformation:
+  the engine reads `SKILLRAC.2DA` and `RACEFEAT.2DA` only under the names of its seven
+  races (lab runs 15c, 15d), so the installer adds no rows there. The engine counts the
+  skill effects in the same classes and kits as a race's own row (lab run 16).
+- Protagonists not created in this game's character creation (imported, older saves, or a
+  UI without the routed race choice) still get the one-use ability; created with another
+  race, they get nothing. The ability's description now says what the transformation
+  changes: infravision and the template race's thief skill bonuses in place of the
+  protagonist's own race's, and no dual-classing.
+- Weapon groups: each melee look code is drawn as its weapon group (sword, axe, dagger,
+  mace, morning star, flail, hammer, club, staff, spear, halberd, sling), with further
+  sprite bodies (`HGP1`-`HGP9`) where codes of different groups share a first letter. With
+  the generated weapon art (`tools/hob_weapon_art.py`) in `hobgoblin/weapons`, each group
+  gets its own weapon layer, coloured with the game's palette; without it, or on a
+  hobgoblin sprite with other frame geometry, every melee weapon shows the sword.
+- Fixed: 2DA tables without data rows (the `CAMPAIGN.2DA` of BG:EE and BG2:EE 2.7) had
+  their column names read as a data row.
+
 ## v0.1.1-proto (unreleased)
 
 - Curated hobgoblin voice: all ten hobgoblin clips of the game, each on the event it fits

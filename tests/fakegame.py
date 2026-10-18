@@ -29,7 +29,7 @@ BEGIN ~test~ DESIGNATED 0
 # Areas WeiDU's GAME_IS looks for (EET also has override/eet.flag).
 GAME_MARKERS = {"bgee": ["OH1000"], "sod": ["OH1000", "BD0100"], "bg2ee": ["OH6000"], "eet": ["OH1000", "OH6000"]}
 
-TYPES = {"2DA": 1012, "ARE": 1010, "BAM": 1000, "BCS": 1007, "CRE": 1009, "IDS": 1008, "WAV": 4}
+TYPES = {"2DA": 1012, "ARE": 1010, "BAM": 1000, "BCS": 1007, "CRE": 1009, "IDS": 1008, "ITM": 1005, "MENU": 1032, "WAV": 4}
 
 
 def make_tlk(entries):
@@ -77,6 +77,15 @@ def make_cre(anim, sounds, size=0x2D4):
     for slot in range(100):
         if 0xA4 + slot * 4 + 4 <= size:
             struct.pack_into("<i", b, 0xA4 + slot * 4, sounds.get(slot, -1))
+    return bytes(b)
+
+
+def make_itm(itype, code, size=0x72, sig=b"ITM V1  "):
+    """ITM V1 header of item type `itype` (ITM 0x1c) with look code `code` (bytes, ITM 0x22)."""
+    b = bytearray(size)
+    b[0:8] = sig
+    struct.pack_into("<H", b, 0x1C, itype)
+    b[0x22:0x24] = code
     return bytes(b)
 
 

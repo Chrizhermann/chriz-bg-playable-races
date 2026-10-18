@@ -1,10 +1,32 @@
-@1 = ~Hobgoblin protagonist (prototype)~
+@1 = ~Character creation with half-orc rules~
 @2 = ~This game has no hobgoblin animation (8100.ini / MHOB*.BAM); nothing to build from.~
 @3 = ~No free creature animation slot was found next to the hobgoblin slot.~
 @4 = ~RACE.IDS has no HOBGOBLIN entry.~
 @10 = ~Hobgoblin~
-@11 = ~HOBGOBLIN: Brutish, loud and proud of it. (Prototype description.)~
-@12 = ~HOBGOBLIN~
+@11 = ~HOBGOBLINS: Hobgoblins are the larger and sterner cousins of goblins. They live by rank and discipline, march in war bands under a hard chain of command, and judge everyone, themselves included, by strength and skill at arms. Most folk know them as raiders and sellswords and meet them with drawn steel, so a hobgoblin who travels among them earns trust slowly, if at all.
+
+Hobgoblins have the following traits:
+• Infravision.
+• The classes, ability score adjustments and limits, and thief skill bonuses of a half-orc.
+
+Character creation shows a half-orc. The character becomes a hobgoblin, in looks and race, as soon as the game begins. For a hobgoblin's voice, choose Hobgoblin among the voices.~
+@12 = ~hobgoblin~
 @20 = ~Become a Hobgoblin~
 @5 = ~SPLSTATE.IDS has no free spell state (0-255) for the hobgoblin PC marker.~
-@21 = ~Turns you into a hobgoblin for good: you take the hobgoblin's look and its race. This ability can be used once.~
+@21 = ~Turns you into a hobgoblin for good: you take the hobgoblin's look and race. Your own race's traits give way to the hobgoblin's: infravision and the thief skill bonuses of a half-orc. Like other non-humans, a hobgoblin cannot dual-class. This ability can be used once.~
+@22 = ~Turns you into a hobgoblin for good: you take the hobgoblin's look and race. Your own race's traits give way to the hobgoblin's: infravision and the thief skill bonuses of a human. Like other non-humans, a hobgoblin cannot dual-class. This ability can be used once.~
+@6 = ~No free resource names (HGP1-HGP9) for the hobgoblin's further weapon bodies.~
+@7 = ~The game's hobgoblin sprite is not the one the weapon art was drawn for (another mod may have replaced it), so every melee weapon shows the hobgoblin's sword.~
+@8 = ~UI.MENU has no race selection to route (a UI mod may have replaced it), so character creation does not offer the hobgoblin. Protagonists get the one-use ability "Become a Hobgoblin" instead.~
+@9 = ~Hobgoblin protagonist (prototype)~
+@13 = ~Gorion told you little of where you came from: only that he found you, a squalling hobgoblin whelp, among the burned tents of a war band on the Coast Way, and that he could not bring himself to leave you there. He carried you back to Candlekeep and raised you as his ward. The monks never quite grew used to you. Visitors stared, apprentices whispered, and more than one scholar locked his books away when you passed. Yet Gorion taught you letters, patience and a measure of restraint, and he always said that what you are matters less than what you choose to do.~
+@15 = ~HOBGOBLINS: Hobgoblins are the larger and sterner cousins of goblins. They live by rank and discipline, march in war bands under a hard chain of command, and judge everyone, themselves included, by strength and skill at arms. Most folk know them as raiders and sellswords and meet them with drawn steel, so a hobgoblin who travels among them earns trust slowly, if at all.
+
+Hobgoblins have the following traits:
+• Infravision.
+• The classes, ability score adjustments and limits, and thief skill bonuses of a human.
+• Unlike humans, hobgoblins cannot dual-class.
+
+Character creation shows a human. The character becomes a hobgoblin, in looks and race, as soon as the game begins. For a hobgoblin's voice, choose Hobgoblin among the voices.~
+@16 = ~Character creation with human rules~
+@17 = ~Every race table has a race 111 row of another mod already, so character creation does not offer this mod's hobgoblin. Protagonists get the one-use ability "Become a Hobgoblin" instead.~

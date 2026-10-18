@@ -1,38 +1,43 @@
-// Component 100, hobgoblin protagonist (included by setup-chriz-bg-playable-races.tp2).
+// Components 100 and 101, hobgoblin protagonist (included by setup-chriz-bg-playable-races.tp2,
+// which sets hg_template_race: the race whose rules character creation uses for the hobgoblin).
 
 // The hobgoblin animation is "monster_layered": it draws a weapon only when the active
 // weapon's two-character look code (ITM 0x22) equals one of the two codes in its INI, and
 // it names the weapon layer <resref><first letter of the code><suffix>. So the PC gets
-// one INI per pair of look codes; all melee INIs share one body/weapon file set (HGPM*),
-// all launcher INIs share another (HGPR*). Each weapon switches its wielder to the INI
+// one INI per pair of look codes. Melee INIs use the body file set HGPM*, or a further
+// copy of it (HGP1*, ...) where look codes of different weapon groups share a first
+// letter; all launcher INIs share HGPR*. Each weapon switches its wielder to the INI
 // for its code while equipped, but only a creature carrying the HG_HOBGOBLIN_PC spell
 // state (the transformed PC); everyone else is protected from the switch effect.
 
 // ---------------------------------------------------------------- look codes in use
-// Melee weapon types (dagger, mace, small/large sword, hammer, morning star, flail, axe,
-// staff, spear, halberd, club, IWD great/bastard sword) and launchers (bow, crossbow).
-// Slings stay on the melee body: there is no sling-throw animation to show.
-OUTER_SPRINT hg_melee_types  ~ 16 17 19 20 21 22 23 25 26 29 30 44 57 69 ~
+// Melee weapon types (dagger, mace, sling, small/large sword, hammer, morning star, flail,
+// axe, staff, spear, halberd, club, IWD great/bastard sword) and launchers (bow, crossbow).
+// Slings use the melee body (there is no sling-throw animation), with a sling in hand.
+// Each melee code draws as a weapon group: its IESDP meaning, else the group of most of
+// its items (hg_weapon_layout). Groups whose codes share a first letter take one body each.
+OUTER_SPRINT hg_melee_types  ~ 16 17 18 19 20 21 22 23 25 26 29 30 44 57 69 ~
 OUTER_SPRINT hg_ranged_types ~ 15 27 ~
-COPY_EXISTING_REGEXP GLOB ~^.+\.itm$~ ~override~
-  PATCH_IF (BUFFER_LENGTH >= 0x72) BEGIN
-    READ_ASCII 0 sig (4)
-    READ_SHORT 0x1c itype
-    READ_BYTE 0x22 c1
-    READ_BYTE 0x23 c2
-    SET ok1 = ((c1 >= 65) AND (c1 <= 90)) OR ((c1 >= 97) AND (c1 <= 122))
-    SET ok2 = ok1 AND (((c2 >= 48) AND (c2 <= 57)) OR ((c2 >= 65) AND (c2 <= 90)) OR ((c2 >= 97) AND (c2 <= 122)))
-    PATCH_IF (~%sig%~ STRING_EQUAL ~ITM ~) AND ok2 BEGIN
-      SET key = c1 * 256 + c2
-      READ_ASCII 0x22 code (2)
-      PATCH_IF (INDEX (~ %itype% ~ ~%hg_melee_types%~) >= 0) BEGIN
-        SPRINT $hg_melee_codes(~%key%~) ~%code%~
-      END ELSE PATCH_IF (INDEX (~ %itype% ~ ~%hg_ranged_types%~) >= 0) BEGIN
-        SPRINT $hg_ranged_codes(~%key%~) ~%code%~
-      END
-    END
+LAF hg_weapon_layout STR_VAR melee_types = EVAL ~%hg_melee_types%~ ranged_types = EVAL ~%hg_ranged_types%~
+                             base_codes = ~S1 HB~
+  RET hg_nbodies = nbodies hg_nlayers = nslots
+  RET_ARRAY hg_melee_codes = melee hg_ranged_codes = ranged hg_code_body = bodies
+            hg_layer_body = slot_body hg_layer_letter = slot_letter hg_layer_group = slot_group
+END
+// Body resrefs: HGPM, and for each further body the first of HGP1-HGP9 that no BAM of the
+// game starts with.
+OUTER_SPRINT $hg_body(~0~) ~HGPM~
+OUTER_SET hg_cand = 1
+OUTER_FOR (b = 1; b < hg_nbodies; ++b) BEGIN
+  OUTER_SPRINT name ~~
+  OUTER_WHILE (~%name%~ STRING_EQUAL ~~) AND (hg_cand <= 9) BEGIN
+    LAF hg_bam_prefix_free STR_VAR prefix = EVAL ~HGP%hg_cand%~ RET free END
+    ACTION_IF free BEGIN OUTER_SPRINT name ~HGP%hg_cand%~ END
+    OUTER_SET hg_cand += 1
   END
-BUT_ONLY
+  ACTION_IF (~%name%~ STRING_EQUAL ~~) BEGIN FAIL @6 END
+  OUTER_SPRINT $hg_body(~%b%~) ~%name%~
+END
 
 // ---------------------------------------------------------------- animation slots
 // Base INIs: the melee body with the vanilla hobgoblin's long sword (S1) plus halberd
@@ -68,90 +73,121 @@ OUTER_SPRINT hg_reff_base ~HGE%hex%~
 OUTER_SPRINT $hg_reff(~16983~) ~HGE%hex%~   // BW
 OUTER_SPRINT $hg_reff(~17218~) ~HGE%hex%~   // CB
 
-// Extra INIs, two look codes each, for every other code in use.
-ACTION_FOR_EACH group IN melee ranged BEGIN
+// Extra INIs, two look codes of one body each, for every other code in use. An odd code
+// out gets an INI of its own (its code in both fields).
+ACTION_SORT_ARRAY_INDICES hg_melee_codes NUMERICALLY
+OUTER_FOR (b = 0; b < hg_nbodies; ++b) BEGIN
+  OUTER_SPRINT body $hg_body(~%b%~)
   OUTER_SPRINT pending ~~
   OUTER_SET pending_key = 0 - 1
-  ACTION_IF (~%group%~ STRING_EQUAL ~melee~) BEGIN
-    ACTION_SORT_ARRAY_INDICES hg_melee_codes NUMERICALLY
-    ACTION_PHP_EACH hg_melee_codes AS key => code BEGIN
-      ACTION_IF (key != 21297) AND (key != 18498) BEGIN            // S1, HB: base INI
-        ACTION_IF pending_key < 0 BEGIN
-          OUTER_SET pending_key = key
-          OUTER_SPRINT pending ~%code%~
-        END ELSE BEGIN
-          LAM hg_alloc_slot
-          LAF hg_make_ini INT_VAR slot = hg_slot STR_VAR body = ~HGPM~ w1 = EVAL ~%pending%~ w2 = EVAL ~%code%~ END
-          LAF hg_make_anim_eff INT_VAR anim = hg_slot STR_VAR name = EVAL ~HGE%hex%~ END
-          OUTER_SPRINT $hg_meff(~%pending_key%~) ~HGE%hex%~
-          OUTER_SPRINT $hg_meff(~%key%~) ~HGE%hex%~
-          OUTER_SET pending_key = 0 - 1
-        END
-      END
-    END
-  END ELSE BEGIN
-    ACTION_SORT_ARRAY_INDICES hg_ranged_codes NUMERICALLY
-    ACTION_PHP_EACH hg_ranged_codes AS key => code BEGIN
-      ACTION_IF (key != 16983) AND (key != 17218) BEGIN            // BW, CB: base INI
-        ACTION_IF pending_key < 0 BEGIN
-          OUTER_SET pending_key = key
-          OUTER_SPRINT pending ~%code%~
-        END ELSE BEGIN
-          LAM hg_alloc_slot
-          LAF hg_make_ini INT_VAR slot = hg_slot STR_VAR body = ~HGPR~ w1 = EVAL ~%pending%~ w2 = EVAL ~%code%~ END
-          LAF hg_make_anim_eff INT_VAR anim = hg_slot STR_VAR name = EVAL ~HGE%hex%~ END
-          OUTER_SPRINT $hg_reff(~%pending_key%~) ~HGE%hex%~
-          OUTER_SPRINT $hg_reff(~%key%~) ~HGE%hex%~
-          OUTER_SET pending_key = 0 - 1
-        END
+  ACTION_PHP_EACH hg_melee_codes AS key => code BEGIN
+    OUTER_SET kb = $hg_code_body(~%key%~)
+    ACTION_IF (kb = b) AND (key != 21297) AND (key != 18498) BEGIN      // S1, HB: base INI
+      ACTION_IF pending_key < 0 BEGIN
+        OUTER_SET pending_key = key
+        OUTER_SPRINT pending ~%code%~
+      END ELSE BEGIN
+        LAM hg_alloc_slot
+        LAF hg_make_ini INT_VAR slot = hg_slot STR_VAR body = EVAL ~%body%~ w1 = EVAL ~%pending%~ w2 = EVAL ~%code%~ END
+        LAF hg_make_anim_eff INT_VAR anim = hg_slot STR_VAR name = EVAL ~HGE%hex%~ END
+        OUTER_SPRINT $hg_meff(~%pending_key%~) ~HGE%hex%~
+        OUTER_SPRINT $hg_meff(~%key%~) ~HGE%hex%~
+        OUTER_SET pending_key = 0 - 1
       END
     END
   END
-  // An odd code out gets an INI of its own (its code in both fields).
   ACTION_IF pending_key >= 0 BEGIN
     LAM hg_alloc_slot
-    ACTION_IF (~%group%~ STRING_EQUAL ~melee~) BEGIN
-      LAF hg_make_ini INT_VAR slot = hg_slot STR_VAR body = ~HGPM~ w1 = EVAL ~%pending%~ w2 = EVAL ~%pending%~ END
-      OUTER_SPRINT $hg_meff(~%pending_key%~) ~HGE%hex%~
-    END ELSE BEGIN
-      LAF hg_make_ini INT_VAR slot = hg_slot STR_VAR body = ~HGPR~ w1 = EVAL ~%pending%~ w2 = EVAL ~%pending%~ END
-      OUTER_SPRINT $hg_reff(~%pending_key%~) ~HGE%hex%~
-    END
+    LAF hg_make_ini INT_VAR slot = hg_slot STR_VAR body = EVAL ~%body%~ w1 = EVAL ~%pending%~ w2 = EVAL ~%pending%~ END
     LAF hg_make_anim_eff INT_VAR anim = hg_slot STR_VAR name = EVAL ~HGE%hex%~ END
+    OUTER_SPRINT $hg_meff(~%pending_key%~) ~HGE%hex%~
   END
 END
-PRINT ~Hobgoblin PC: %hg_nslots% animation INIs, melee base 0x%slot_melee%, launcher base 0x%slot_ranged% (decimal ids)~
+OUTER_SPRINT pending ~~
+OUTER_SET pending_key = 0 - 1
+ACTION_SORT_ARRAY_INDICES hg_ranged_codes NUMERICALLY
+ACTION_PHP_EACH hg_ranged_codes AS key => code BEGIN
+  ACTION_IF (key != 16983) AND (key != 17218) BEGIN                     // BW, CB: base INI
+    ACTION_IF pending_key < 0 BEGIN
+      OUTER_SET pending_key = key
+      OUTER_SPRINT pending ~%code%~
+    END ELSE BEGIN
+      LAM hg_alloc_slot
+      LAF hg_make_ini INT_VAR slot = hg_slot STR_VAR body = ~HGPR~ w1 = EVAL ~%pending%~ w2 = EVAL ~%code%~ END
+      LAF hg_make_anim_eff INT_VAR anim = hg_slot STR_VAR name = EVAL ~HGE%hex%~ END
+      OUTER_SPRINT $hg_reff(~%pending_key%~) ~HGE%hex%~
+      OUTER_SPRINT $hg_reff(~%key%~) ~HGE%hex%~
+      OUTER_SET pending_key = 0 - 1
+    END
+  END
+END
+ACTION_IF pending_key >= 0 BEGIN
+  LAM hg_alloc_slot
+  LAF hg_make_ini INT_VAR slot = hg_slot STR_VAR body = ~HGPR~ w1 = EVAL ~%pending%~ w2 = EVAL ~%pending%~ END
+  LAF hg_make_anim_eff INT_VAR anim = hg_slot STR_VAR name = EVAL ~HGE%hex%~ END
+  OUTER_SPRINT $hg_reff(~%pending_key%~) ~HGE%hex%~
+END
+LAF hg_hex4 INT_VAR value = slot_melee RET hg_melee_hex = hex END
+LAF hg_hex4 INT_VAR value = slot_ranged RET hg_ranged_hex = hex END
+PRINT ~Hobgoblin PC: %hg_nslots% animation INIs on %hg_nbodies% melee bodies, melee base 0x%hg_melee_hex%, launcher base 0x%hg_ranged_hex%~
 
 // ---------------------------------------------------------------- sprite files
-// Melee body: two-handed attacks reuse the one-handed slash instead of the bow shot.
-ACTION_FOR_EACH sfx IN G1 G1E BEGIN
-  LAF hg_copy_bam STR_VAR src = EVAL ~MHOB%sfx%~ dst = EVAL ~HGPM%sfx%~ END
+// Melee bodies: two-handed attacks reuse the one-handed slash instead of the bow shot.
+// Each gets the inventory figure: the hobgoblin standing (facing south), twice the size.
+OUTER_FOR (b = 0; b < hg_nbodies; ++b) BEGIN
+  OUTER_SPRINT body $hg_body(~%b%~)
+  ACTION_FOR_EACH sfx IN G1 G1E BEGIN
+    LAF hg_copy_bam STR_VAR src = EVAL ~MHOB%sfx%~ dst = EVAL ~%body%%sfx%~ END
+  END
+  ACTION_FOR_EACH sfx IN G2 G2E BEGIN
+    LAF hg_copy_bam INT_VAR remap_2h = 1 STR_VAR src = EVAL ~MHOB%sfx%~ dst = EVAL ~%body%%sfx%~ END
+  END
+  LAF hg_make_inv_bam STR_VAR src = ~mhobg1~ dst = EVAL ~%body%inv~ END
 END
-ACTION_FOR_EACH sfx IN G2 G2E BEGIN
-  LAF hg_copy_bam INT_VAR remap_2h = 1 STR_VAR src = EVAL ~MHOB%sfx%~ dst = EVAL ~HGPM%sfx%~ END
+// Melee weapon layers, one per body and letter in use: the group's art from
+// hobgoblin/weapons (drawn by tools/hob_weapon_art.py along the game's sword layer), with
+// the palette of that layer, when the game's hobgoblin sprites have the frame geometry the
+// art was drawn for. Swords, and every group on other sprites, get the hobgoblin's own
+// sword layer.
+OUTER_SET hg_art_ok = 0
+OUTER_SPRINT hg_art_groups ~~
+ACTION_IF FILE_EXISTS ~chriz-bg-playable-races/hobgoblin/weapons/art.tpa~ BEGIN
+  INCLUDE ~chriz-bg-playable-races/hobgoblin/weapons/art.tpa~
+  OUTER_SET hg_art_ok = 1
+  ACTION_PHP_EACH hg_art_geo1 AS res => s1 BEGIN
+    OUTER_SET s2 = $hg_art_geo2(~%res%~)
+    LAF hg_bam_geometry_matches INT_VAR sum1 = s1 sum2 = s2 STR_VAR name = EVAL ~%res%~ RET ok END
+    ACTION_IF NOT ok BEGIN OUTER_SET hg_art_ok = 0 END
+  END
+  ACTION_IF NOT hg_art_ok BEGIN WARN @7 END
 END
-// Weapon layers: the sword for every first letter of a melee code in use (weapon-group
-// art can replace these later), the bow for every launcher letter.
-ACTION_DEFINE_ASSOCIATIVE_ARRAY hg_mletter BEGIN S => 1 H => 1 END
-ACTION_PHP_EACH hg_melee_codes AS key => code BEGIN
-  LAF hg_upper_letter INT_VAR c = key / 256 RET letter END
-  ACTION_IF NOT (~%letter%~ STRING_EQUAL ~~) BEGIN
-    OUTER_SET $hg_mletter(~%letter%~) = 1
+OUTER_FOR (i = 0; i < hg_nlayers; ++i) BEGIN
+  OUTER_SET lb = $hg_layer_body(~%i%~)
+  OUTER_SPRINT body $hg_body(~%lb%~)
+  OUTER_SPRINT letter $hg_layer_letter(~%i%~)
+  OUTER_SPRINT group $hg_layer_group(~%i%~)
+  OUTER_SET use_art = hg_art_ok AND (INDEX (~ %group% ~ ~ %hg_art_groups% ~) >= 0)
+  ACTION_FOR_EACH sfx IN G1 G1E G2 G2E BEGIN
+    OUTER_SET remap = (~%sfx%~ STRING_EQUAL ~G2~) OR (~%sfx%~ STRING_EQUAL ~G2E~)
+    ACTION_IF use_art BEGIN
+      OUTER_SPRINT lsfx ~%sfx%~
+      ACTION_TO_LOWER lsfx
+      LAF hg_copy_weapon_art INT_VAR remap_2h = remap
+        STR_VAR art = EVAL ~chriz-bg-playable-races/hobgoblin/weapons/%group%_%lsfx%.bam~
+                palette = EVAL ~MHOBS%sfx%~
+                dst = EVAL ~%body%%letter%%sfx%~ END
+    END ELSE BEGIN
+      LAF hg_copy_bam INT_VAR remap_2h = remap STR_VAR src = EVAL ~MHOBS%sfx%~ dst = EVAL ~%body%%letter%%sfx%~ END
+    END
   END
 END
+PRINT ~Hobgoblin PC: %hg_nlayers% melee weapon layers, weapon art %hg_art_ok%~
+// Launcher layers: the hobgoblin's bow for every launcher letter.
 ACTION_DEFINE_ASSOCIATIVE_ARRAY hg_rletter BEGIN B => 1 C => 1 END
 ACTION_PHP_EACH hg_ranged_codes AS key => code BEGIN
   LAF hg_upper_letter INT_VAR c = key / 256 RET letter END
   ACTION_IF NOT (~%letter%~ STRING_EQUAL ~~) BEGIN
     OUTER_SET $hg_rletter(~%letter%~) = 1
-  END
-END
-ACTION_PHP_EACH hg_mletter AS letter => v BEGIN
-  ACTION_FOR_EACH sfx IN G1 G1E BEGIN
-    LAF hg_copy_bam STR_VAR src = EVAL ~MHOBS%sfx%~ dst = EVAL ~HGPM%letter%%sfx%~ END
-  END
-  ACTION_FOR_EACH sfx IN G2 G2E BEGIN
-    LAF hg_copy_bam INT_VAR remap_2h = 1 STR_VAR src = EVAL ~MHOBS%sfx%~ dst = EVAL ~HGPM%letter%%sfx%~ END
   END
 END
 // Launcher body keeps the original bow-shot cycles.
@@ -163,20 +199,53 @@ ACTION_PHP_EACH hg_rletter AS letter => v BEGIN
     LAF hg_copy_bam STR_VAR src = EVAL ~MHOBB%sfx%~ dst = EVAL ~HGPR%letter%%sfx%~ END
   END
 END
-// Inventory figure for both bodies: the hobgoblin standing (facing south), twice the size.
-LAF hg_make_inv_bam STR_VAR src = ~mhobg1~ dst = ~hgpminv~ END
+// Inventory figure for the launcher body.
 LAF hg_make_inv_bam STR_VAR src = ~mhobg1~ dst = ~hgprinv~ END
 
 // ---------------------------------------------------------------- race data
+// Race HOBGOBLIN in character creation: a row in every campaign race table, offered with the
+// rules of the template race hg_template_race (half-orc unless the tp2 sets another). The
+// engine creates only its seven standard races (lab run 14b), so choosing the hobgoblin creates
+// the template race, and the world scripts make the protagonist a hobgoblin as the game starts
+// (give_ability.baf). Where UI.MENU has no race selection to route, the race list leaves the
+// hobgoblin out and protagonists get the one-use ability instead.
+ACTION_IF NOT VARIABLE_IS_SET hg_template_race BEGIN OUTER_SET hg_template_race = 7 END
 OUTER_SET race_hob = IDS_OF_SYMBOL (~race~ ~HOBGOBLIN~)
 ACTION_IF race_hob < 0 BEGIN FAIL @4 END
-OUTER_SET name_ref = RESOLVE_STR_REF (@10)
-OUTER_SET desc_ref = RESOLVE_STR_REF (@11)
-OUTER_SET upper_ref = RESOLVE_STR_REF (@12)
-APPEND ~racetext.2da~ ~HOBGOBLIN %race_hob% %name_ref% %desc_ref% %upper_ref% -1~
-  UNLESS ~^HOBGOBLIN[ %TAB%]~
-APPEND ~racefeat.2da~ ~HOBGOBLIN 1~
-  UNLESS ~^HOBGOBLIN[ %TAB%]~
+OUTER_SPRINT hg_template_sym ~~
+OUTER_PATCH ~~ BEGIN
+  LOOKUP_IDS_SYMBOL_OF_INT hg_template_sym ~race~ hg_template_race
+END
+ACTION_IF (hg_template_race = 1) BEGIN
+  OUTER_SET desc_ref = RESOLVE_STR_REF (@15)     // human rules
+  OUTER_SET hg_ability_desc = RESOLVE_STR_REF (@22)
+END ELSE BEGIN
+  OUTER_SET desc_ref = RESOLVE_STR_REF (@11)     // half-orc rules
+  OUTER_SET hg_ability_desc = RESOLVE_STR_REF (@21)
+END
+// Whatever the column names say, a race table's NAME holds the lower-case name the race list
+// shows ("human", "half-orc") and UPPERCASE the capitalized one the record screen shows
+// ("Human", "Half-Orc"); the record screen finds race 111's row by its ID (lab run 15c).
+LAF hg_offer_race INT_VAR race = race_hob template = hg_template_race name_ref = RESOLVE_STR_REF (@12)
+                          desc_ref upper_ref = RESOLVE_STR_REF (@10) bio_ref = RESOLVE_STR_REF (@13)
+  STR_VAR label = ~HOBGOBLIN~
+  RET hg_race_tables = tables hg_race_routed = routed
+END
+ACTION_IF (hg_race_tables = 0) BEGIN WARN @17 END
+ACTION_IF (hg_race_tables > 0) AND NOT hg_race_routed BEGIN WARN @8 END
+// After the transformation the race is HOBGOBLIN, and the engine gives race 111 nothing from
+// its race tables: it looks up SKILLRAC.2DA (thief skills) and RACEFEAT.2DA (infravision)
+// only under the names of its seven races, so a HOBGOBLIN row there does nothing (lab runs 15,
+// 15c, 15d). The transformation gives the template race's thief skill row as permanent
+// effects instead, and infravision. The engine counts skill effects only for the classes and
+// kits with that skill (THIEFSCL.2DA), as it counts the race row: a fighter gets neither.
+LAF hg_race_skill_bonuses INT_VAR race = hg_template_race
+  RET hg_skill_row = found RET_ARRAY hg_skill_bonus = bonuses END
+OUTER_SPRINT hg_skill_list ~~
+ACTION_PHP_EACH hg_skill_bonus AS op => v BEGIN
+  OUTER_SPRINT hg_skill_list ~%hg_skill_list% op%op% %v%~
+END
+PRINT ~Hobgoblin PC: race %race_hob% in %hg_race_tables% race table(s), choice routed %hg_race_routed%, rules of race %hg_template_race% (%hg_template_sym%), thief skill row %hg_skill_row%:%hg_skill_list%~
 
 // ---------------------------------------------------------------- PC marker state
 OUTER_SET hg_splstate = IDS_OF_SYMBOL (~splstate~ ~HG_HOBGOBLIN_PC~)
@@ -205,10 +274,9 @@ PRINT ~Hobgoblin PC: spell state %hg_splstate%, SPLPROT rows %hg_splprot_row% (n
 // the base INI of its body (no weapon layer drawn). Setting the animation explicitly for
 // every weapon matters: when the active weapon is replaced by one without a switch, the
 // engine can keep the previous weapon's sprite (lab run 2: crossbow -> sling stayed on
-// the bow body). Slings use the melee body. Quiver items (arrows, bolts, bullets, darts)
-// stay untouched: the engine treats them as always equipped.
+// the bow body). Slings count as melee weapons. Quiver items (arrows, bolts, bullets,
+// darts) stay untouched: the engine treats them as always equipped.
 // op318 shields every unmarked creature from the switch, op177 applies it.
-OUTER_SPRINT hg_sling_types ~ 18 ~
 COPY_EXISTING_REGEXP GLOB ~^.+\.itm$~ ~override~
   PATCH_IF (BUFFER_LENGTH >= 0x72) BEGIN
     READ_ASCII 0 sig (4)
@@ -230,8 +298,6 @@ COPY_EXISTING_REGEXP GLOB ~^.+\.itm$~ ~override~
         END ELSE BEGIN
           SPRINT eff ~%hg_reff_base%~
         END
-      END ELSE PATCH_IF (INDEX (~ %itype% ~ ~%hg_sling_types%~) >= 0) BEGIN
-        SPRINT eff ~%hg_meff_base%~
       END
     END
     PATCH_IF NOT (~%eff%~ STRING_EQUAL ~~) BEGIN
@@ -318,34 +384,61 @@ ACTION_IF FILE_EXISTS_IN_GAME ~spwi416.spl~ BEGIN
       END
     END
 END
-CREATE ~SPL~ ~hgpcxfrm~
-  LPF hg_spl_init END
-  WRITE_LONG 0x08 RESOLVE_STR_REF (@20)
-  WRITE_LONG 0x50 RESOLVE_STR_REF (@21)
-  WRITE_ASCIIE 0x3a ~%hg_icon_book%~ #8
-  WRITE_ASCIIE 0x76 ~%hg_icon_ability%~ #8   // ability icon
+// The transformation, for good: the hobgoblin look and colours, race HOBGOBLIN with the
+// template's thief skill row and infravision, and the marker state. Its effects go to target
+// hg_xtarget: 1 (the caster) in the innate ability, 2 (the script's target, Player1) where a
+// world script applies it.
+DEFINE_PATCH_MACRO hg_xfrm_effects BEGIN
+  LOCAL_SET i = 0
+  LOCAL_SET col = 0
+  LOCAL_SET op = 0
+  LOCAL_SET v = 0
   // Base animation, permanently (timing 1 sets the creature's base animation).
-  LPF ADD_SPELL_EFFECT INT_VAR opcode = 53 target = 1 timing = 1 parameter1 = slot_melee parameter2 = 0 END
+  LPF ADD_SPELL_EFFECT INT_VAR opcode = 53 target = hg_xtarget timing = 1 parameter1 = slot_melee parameter2 = 0 END
   // Base colours, except metal (0), major (2) and armor (5): body armour sets those while worn
   // (see armour colours), and a permanent effect here could override the worn armour.
   FOR (i = 0; i < 7; ++i) BEGIN
     PATCH_IF (i != 0) AND (i != 2) AND (i != 5) BEGIN
       SET col = $hg_col(~%i%~)
-      LPF ADD_SPELL_EFFECT INT_VAR opcode = 7 target = 1 timing = 1 parameter1 = col parameter2 = i END
+      LPF ADD_SPELL_EFFECT INT_VAR opcode = 7 target = hg_xtarget timing = 1 parameter1 = col parameter2 = i END
     END
   END
   // Race HOBGOBLIN, permanently.
-  LPF ADD_SPELL_EFFECT INT_VAR opcode = 72 target = 1 timing = 1 parameter1 = race_hob parameter2 = 2 END
+  LPF ADD_SPELL_EFFECT INT_VAR opcode = 72 target = hg_xtarget timing = 1 parameter1 = race_hob parameter2 = 2 END
+  // The template race's thief skill row and infravision, for good (see the race section).
+  // Timing 9, not 1: timing 1 would add to the base skills, which the engine counts for
+  // every class (lab run 15c).
+  PHP_EACH hg_skill_bonus AS op => v BEGIN
+    LPF ADD_SPELL_EFFECT INT_VAR opcode = op target = hg_xtarget timing = 9 parameter1 = v parameter2 = 0 END
+  END
+  LPF ADD_SPELL_EFFECT INT_VAR opcode = 63 target = hg_xtarget timing = 9 END
   // Marker state that lets the weapons switch this creature's animation INI.
   // special = 1 selects SPLSTATE.IDS; with special = 0 the effect sits in the list
   // but the state never reads as set (lab-verified; the installed SPPR508's markers use 1/1).
-  LPF ADD_SPELL_EFFECT INT_VAR opcode = 328 target = 1 timing = 9 parameter1 = 1 parameter2 = hg_splstate special = 1 END
-  // One use: the ability removes itself.
-  LPF ADD_SPELL_EFFECT INT_VAR opcode = 172 target = 1 timing = 1 STR_VAR resource = ~hgpcxfrm~ END
+  LPF ADD_SPELL_EFFECT INT_VAR opcode = 328 target = hg_xtarget timing = 9 parameter1 = 1 parameter2 = hg_splstate
+    special = 1 END
+  // One use: the ability goes (also from a protagonist a world script transforms).
+  LPF ADD_SPELL_EFFECT INT_VAR opcode = 172 target = hg_xtarget timing = 1 STR_VAR resource = ~hgpcxfrm~ END
+END
+CREATE ~SPL~ ~hgpcxfrm~
+  LPF hg_spl_init END
+  WRITE_LONG 0x08 RESOLVE_STR_REF (@20)
+  WRITE_LONG 0x50 hg_ability_desc   // the template race's traits (race data)
+  WRITE_ASCIIE 0x3a ~%hg_icon_book%~ #8
+  WRITE_ASCIIE 0x76 ~%hg_icon_ability%~ #8   // ability icon
+  SET hg_xtarget = 1
+  LPM hg_xfrm_effects
 
-// The protagonist gets the ability once per game, from the campaigns' world scripts: in new
-// games and in saves made before this install. A protagonist who already is a hobgoblin
-// gets nothing. HGPCGIVE carries it (target 2: the script hands Player1 the spell).
+// The world scripts (give_ability.baf) run once per game. A protagonist created as the
+// hobgoblin in this game's character creation becomes one at once: HGPCXNOW is the
+// transformation for them. Any other protagonist not created with another race in this game,
+// as in games started by import and saves made before this install, gets the ability:
+// HGPCGIVE hands it over. A protagonist who already is a hobgoblin gets nothing. Target 2:
+// the script's target, Player1.
+CREATE ~SPL~ ~hgpcxnow~
+  LPF hg_spl_init END
+  SET hg_xtarget = 2
+  LPM hg_xfrm_effects
 CREATE ~SPL~ ~hgpcgive~
   LPF hg_spl_init END
   LPF ADD_SPELL_EFFECT INT_VAR opcode = 171 target = 2 timing = 1 STR_VAR resource = ~hgpcxfrm~ END
@@ -371,4 +464,4 @@ LAF hg_clip_voice INT_VAR display = RESOLVE_STR_REF (@10)
           clip_leader1     = ~HOBGL03~   // becomes leader: "Forward march!" again
           clip_criticalhit = ~HOBGL04~   // critical hit: "Spare no one!" again
   RET hg_voice_slots = slots END
-PRINT ~Hobgoblin PC: ability via %hg_world_scripts% world script(s), voice set with %hg_voice_slots% slot(s)~
+PRINT ~Hobgoblin PC: transformation and ability via %hg_world_scripts% world script(s), voice set with %hg_voice_slots% slot(s)~

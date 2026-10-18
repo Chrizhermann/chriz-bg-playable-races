@@ -430,11 +430,33 @@ END
 // the column-name line as row `hrow` read with `ncols - 1`. READ_2DA_ENTRY and
 // COUNT_2DA_ROWS count only lines with at least that many entries, so with one or two
 // columns the signature line "2DA V1.0" (two entries) and the default value line (one)
-// count as well, in front.
+// count as well, in front. `ncols` comes from the column-name line (the third line), not
+// from COUNT_2DA_COLS: that counts the longest line, so a table without data rows (the
+// CAMPAIGN.2DA of BG:EE and BG2:EE 2.7) would read its column names as a data row.
 DEFINE_PATCH_FUNCTION hg_2da_layout
   RET ncols drow nrows hrow
 BEGIN
-  COUNT_2DA_COLS ncols
+  SET p = 0
+  SET line = 0
+  WHILE (line < 2) AND (p < BUFFER_LENGTH) BEGIN
+    READ_BYTE p ch
+    SET p += 1
+    PATCH_IF (ch = 10) BEGIN SET line += 1 END
+  END
+  SET names = 0
+  SET in_name = 0
+  SET ch = 0
+  WHILE (p < BUFFER_LENGTH) AND (ch != 10) BEGIN
+    READ_BYTE p ch
+    SET p += 1
+    PATCH_IF (ch = 32) OR (ch = 9) OR (ch = 13) OR (ch = 10) BEGIN
+      SET in_name = 0
+    END ELSE PATCH_IF NOT in_name BEGIN
+      SET in_name = 1
+      SET names += 1
+    END
+  END
+  SET ncols = names + 1
   SET hrow = ((ncols - 1 <= 2) ? 1 : 0) + ((ncols - 1 <= 1) ? 1 : 0)
   SET drow = (ncols <= 2) ? 1 : 0
   SET nrows = 0
@@ -458,23 +480,33 @@ BEGIN
   END
 END
 
+// The entries of the column `name` (the first of that name) in the current CAMPAIGN.2DA
+// buffer, upper case, as the keys of `values` ("*" left out); empty without such a column.
+DEFINE_PATCH_FUNCTION hg_campaign_column
+  STR_VAR name = ~~
+  RET_ARRAY values
+BEGIN
+  CLEAR_ARRAY values
+  LPF hg_2da_column STR_VAR name = EVAL ~%name%~ RET col = column END
+  PATCH_IF (col > 0) BEGIN
+    LPF hg_2da_layout RET ncols drow nrows END
+    FOR (r = drow; r < drow + nrows; ++r) BEGIN
+      READ_2DA_ENTRY r col ncols v
+      TO_UPPER ~v~
+      PATCH_IF NOT (~%v%~ STRING_EQUAL ~*~) BEGIN
+        SPRINT $values(~%v%~) ~%v%~
+      END
+    END
+  END
+END
+
 // The world scripts named in the current CAMPAIGN.2DA buffer (column WORLDSCRIPT), upper
 // case, as the keys of `scripts`; empty without such a column.
 DEFINE_PATCH_FUNCTION hg_campaign_world_scripts
   RET_ARRAY scripts
 BEGIN
   CLEAR_ARRAY scripts
-  LPF hg_2da_column STR_VAR name = ~WORLDSCRIPT~ RET wcol = column END
-  PATCH_IF (wcol > 0) BEGIN
-    LPF hg_2da_layout RET ncols drow nrows END
-    FOR (r = drow; r < drow + nrows; ++r) BEGIN
-      READ_2DA_ENTRY r wcol ncols ws
-      TO_UPPER ~ws~
-      PATCH_IF NOT (~%ws%~ STRING_EQUAL ~*~) BEGIN
-        SPRINT $scripts(~%ws%~) ~%ws%~
-      END
-    END
-  END
+  LPF hg_campaign_column STR_VAR name = ~WORLDSCRIPT~ RET_ARRAY scripts = values END
 END
 
 // Does the current CHARSND.2DA buffer have the layout the engine expects (exactly 99 rows,
@@ -821,5 +853,557 @@ BEGIN
     OUTER_PATCH ~ABCDEFGHIJKLMNOPQRSTUVWXYZ~ BEGIN
       READ_ASCII (u - 65) letter (1)
     END
+  END
+END
+
+// The look codes (ITM 0x22: a letter, then a letter or digit) of the game's items whose type
+// (ITM 0x1c) is in `melee_types` or `ranged_types` (item types separated by spaces), and how
+// the hobgoblin draws the melee ones.
+//
+// `melee`, `ranged`: key first byte * 256 + second byte, value the code as written.
+// `groups`, per melee key: the weapon group the code draws as. A code IESDP names keeps that
+// meaning (AX axe, CL club, DD dagger, FL flail, FS S1 S2 S3 SC SS sword, HB halberd, MC mace,
+// MS morningstar, QS staff, SL sling, SP spear, WH hammer); any other code takes the group of
+// most of its items by item type, a tie going to the earlier group in the order
+// sword halberd axe spear staff mace morningstar hammer club flail dagger sling.
+// `bodies`, per melee key: the body (0, 1, ...) the code draws on. The engine names a weapon
+// layer after its body and the code's first letter in upper case, so two groups that share a
+// first letter need two bodies. Per letter the groups in use take bodies 0, 1, ... in the
+// order above, except that the groups of `base_codes` come first: body 0's base INI draws
+// them and always exists, also when no item uses them.
+// `slot_body`, `slot_letter`, `slot_group` (keys 0 to nslots - 1): each body and letter that
+// needs a weapon layer, with the group the layer draws. `nbodies`: bodies in use (at least 1).
+DEFINE_ACTION_FUNCTION hg_weapon_layout
+  STR_VAR melee_types = ~~
+          ranged_types = ~~
+          base_codes = ~~
+  RET nbodies
+      nslots
+  RET_ARRAY melee
+            ranged
+            groups
+            bodies
+            slot_body
+            slot_letter
+            slot_group
+BEGIN
+  ACTION_CLEAR_ARRAY melee
+  ACTION_CLEAR_ARRAY ranged
+  ACTION_CLEAR_ARRAY groups
+  ACTION_CLEAR_ARRAY bodies
+  ACTION_CLEAR_ARRAY slot_body
+  ACTION_CLEAR_ARRAY slot_letter
+  ACTION_CLEAR_ARRAY slot_group
+  ACTION_DEFINE_ASSOCIATIVE_ARRAY hgw_type_group BEGIN
+    16 => dagger   17 => mace   18 => sling   19 => sword   20 => sword   21 => hammer
+    22 => morningstar   23 => flail   25 => axe   26 => staff   29 => spear   30 => halberd
+    44 => club   57 => sword   69 => sword
+  END
+  ACTION_DEFINE_ASSOCIATIVE_ARRAY hgw_known BEGIN
+    AX => axe   CL => club   DD => dagger   FL => flail   FS => sword   HB => halberd
+    MC => mace   MS => morningstar   QS => staff   S1 => sword   S2 => sword   S3 => sword
+    SC => sword   SL => sling   SP => spear   SS => sword   WH => hammer
+  END
+  // Census: the codes, and per melee code how many of its items each group has.
+  COPY_EXISTING_REGEXP GLOB ~^.+\.itm$~ ~override~
+    PATCH_IF (BUFFER_LENGTH >= 0x72) BEGIN
+      READ_ASCII 0 sig (4)
+      READ_SHORT 0x1c itype
+      READ_BYTE 0x22 c1
+      READ_BYTE 0x23 c2
+      SET ok1 = ((c1 >= 65) AND (c1 <= 90)) OR ((c1 >= 97) AND (c1 <= 122))
+      SET ok2 = ok1 AND (((c2 >= 48) AND (c2 <= 57)) OR ((c2 >= 65) AND (c2 <= 90)) OR ((c2 >= 97) AND (c2 <= 122)))
+      PATCH_IF (~%sig%~ STRING_EQUAL ~ITM ~) AND ok2 BEGIN
+        SET key = c1 * 256 + c2
+        READ_ASCII 0x22 code (2)
+        PATCH_IF (INDEX (~ %itype% ~ ~ %melee_types% ~) >= 0) BEGIN
+          SPRINT $melee(~%key%~) ~%code%~
+          PATCH_IF (VARIABLE_IS_SET EVAL ~hgw_type_group_%itype%~) BEGIN
+            SPRINT grp $hgw_type_group(~%itype%~)
+            PATCH_IF (VARIABLE_IS_SET EVAL ~hgw_n_%key%_%grp%~) BEGIN
+              SET $hgw_n(~%key%~ ~%grp%~) = $hgw_n(~%key%~ ~%grp%~) + 1
+            END ELSE BEGIN
+              SET $hgw_n(~%key%~ ~%grp%~) = 1
+            END
+          END
+        END ELSE PATCH_IF (INDEX (~ %itype% ~ ~ %ranged_types% ~) >= 0) BEGIN
+          SPRINT $ranged(~%key%~) ~%code%~
+        END
+      END
+    END
+  BUT_ONLY
+  // Group of each melee code.
+  ACTION_PHP_EACH melee AS key => code BEGIN
+    OUTER_SPRINT grp ~~
+    ACTION_PHP_EACH hgw_known AS kc => kg BEGIN
+      ACTION_IF (~%code%~ STRING_EQUAL ~%kc%~) BEGIN OUTER_SPRINT grp ~%kg%~ END
+    END
+    ACTION_IF (~%grp%~ STRING_EQUAL ~~) BEGIN
+      OUTER_SET best = 0
+      ACTION_FOR_EACH g IN sword halberd axe spear staff mace morningstar hammer club flail dagger sling BEGIN
+        ACTION_IF (VARIABLE_IS_SET EVAL ~hgw_n_%key%_%g%~) BEGIN
+          OUTER_SET n = $hgw_n(~%key%~ ~%g%~)
+          ACTION_IF (n > best) BEGIN
+            OUTER_SET best = n
+            OUTER_SPRINT grp ~%g%~
+          END
+        END
+      END
+    END
+    ACTION_IF (~%grp%~ STRING_EQUAL ~~) BEGIN OUTER_SPRINT grp ~sword~ END
+    OUTER_SPRINT $groups(~%key%~) ~%grp%~
+  END
+  // Groups in use per first letter, the base codes' groups first.
+  ACTION_CLEAR_ARRAY hgw_bases
+  OUTER_SET nb = 0
+  OUTER_PATCH ~%base_codes%~ BEGIN
+    REPLACE_EVALUATE ~\([^ %TAB%]+\)~ BEGIN
+      SPRINT $hgw_bases(~%nb%~) ~%MATCH1%~
+      SET nb += 1
+    END ~%MATCH1%~
+  END
+  ACTION_CLEAR_ARRAY hgw_letters
+  ACTION_PHP_EACH hgw_bases AS i => bc BEGIN
+    OUTER_PATCH ~%bc%~ BEGIN
+      READ_BYTE 0 c1
+      READ_BYTE 1 c2
+    END
+    OUTER_SET key = c1 * 256 + c2
+    ACTION_IF (VARIABLE_IS_SET EVAL ~groups_%key%~) BEGIN
+      OUTER_SPRINT grp $groups(~%key%~)
+    END ELSE BEGIN
+      OUTER_SPRINT grp ~sword~
+      ACTION_PHP_EACH hgw_known AS kc => kg BEGIN
+        ACTION_IF (~%bc%~ STRING_EQUAL ~%kc%~) BEGIN OUTER_SPRINT grp ~%kg%~ END
+      END
+    END
+    LAF hg_upper_letter INT_VAR c = c1 RET letter END
+    ACTION_IF NOT (~%letter%~ STRING_EQUAL ~~) BEGIN
+      ACTION_IF NOT (VARIABLE_IS_SET EVAL ~hgw_first_%letter%~) BEGIN
+        OUTER_SPRINT $hgw_first(~%letter%~) ~%grp%~
+      END
+      OUTER_SET $hgw_letters(~%letter%~) = 1
+      OUTER_SET $hgw_used(~%letter%~ ~%grp%~) = 1
+    END
+  END
+  ACTION_PHP_EACH melee AS key => code BEGIN
+    LAF hg_upper_letter INT_VAR c = key / 256 RET letter END
+    OUTER_SPRINT grp $groups(~%key%~)
+    OUTER_SET $hgw_letters(~%letter%~) = 1
+    OUTER_SET $hgw_used(~%letter%~ ~%grp%~) = 1
+  END
+  // Bodies per letter, and the weapon layers they need.
+  OUTER_SET nbodies = 1
+  OUTER_SET nslots = 0
+  ACTION_PHP_EACH hgw_letters AS letter => v BEGIN
+    OUTER_SET n = 0
+    // "base" stands for the group of this letter's base code, if there is one.
+    OUTER_SPRINT base ~~
+    ACTION_IF (VARIABLE_IS_SET EVAL ~hgw_first_%letter%~) BEGIN
+      OUTER_SPRINT base $hgw_first(~%letter%~)
+    END
+    ACTION_FOR_EACH g IN base sword halberd axe spear staff mace morningstar hammer club flail dagger sling BEGIN
+      ACTION_IF (~%g%~ STRING_EQUAL ~base~) BEGIN
+        OUTER_SPRINT grp ~%base%~
+      END ELSE BEGIN
+        OUTER_SPRINT grp ~%g%~
+      END
+      ACTION_IF NOT (~%grp%~ STRING_EQUAL ~~) BEGIN
+        ACTION_IF (VARIABLE_IS_SET EVAL ~hgw_used_%letter%_%grp%~) AND NOT (VARIABLE_IS_SET EVAL ~hgw_body_%letter%_%grp%~) BEGIN
+          OUTER_SET $hgw_body(~%letter%~ ~%grp%~) = n
+          OUTER_SET $slot_body(~%nslots%~) = n
+          OUTER_SPRINT $slot_letter(~%nslots%~) ~%letter%~
+          OUTER_SPRINT $slot_group(~%nslots%~) ~%grp%~
+          OUTER_SET nslots += 1
+          OUTER_SET n += 1
+        END
+      END
+    END
+    ACTION_IF (n > nbodies) BEGIN OUTER_SET nbodies = n END
+  END
+  ACTION_PHP_EACH melee AS key => code BEGIN
+    LAF hg_upper_letter INT_VAR c = key / 256 RET letter END
+    OUTER_SPRINT grp $groups(~%key%~)
+    OUTER_SET $bodies(~%key%~) = $hgw_body(~%letter%~ ~%grp%~)
+  END
+END
+
+// Two checksums of the frame geometry of the (decompressed) BAM in the buffer, cycle by
+// cycle and position by position: each cycle's frame count, then each position's frame
+// width, height and centre (or a mark for a lookup entry that names no frame). Frame order,
+// compression and pixels do not count, so the same animation from another game gives the
+// same sums.
+DEFINE_PATCH_FUNCTION hg_bam_geometry_sum
+  RET sum1
+      sum2
+BEGIN
+  READ_SHORT 0x08 nfr
+  READ_BYTE  0x0a ncy
+  READ_LONG  0x0c fo
+  READ_LONG  0x14 lo
+  SET sum1 = ncy
+  SET sum2 = ncy
+  FOR (c = 0; c < ncy; ++c) BEGIN
+    READ_SHORT (fo + nfr * 12 + c * 4) cnt
+    READ_SHORT (fo + nfr * 12 + c * 4 + 2) first
+    SET sum1 = (sum1 * 31 + cnt + 1) MODULO 1000003
+    SET sum2 = (sum2 * 37 + cnt + 1) MODULO 999983
+    FOR (k = 0; k < cnt; ++k) BEGIN
+      READ_SHORT (lo + (first + k) * 2) fi
+      PATCH_IF (fi >= nfr) BEGIN
+        SET sum1 = (sum1 * 31 + 7) MODULO 1000003
+        SET sum2 = (sum2 * 37 + 7) MODULO 999983
+      END ELSE BEGIN
+        READ_SHORT  (fo + fi * 12)     w
+        READ_SHORT  (fo + fi * 12 + 2) h
+        READ_SSHORT (fo + fi * 12 + 4) cx
+        READ_SSHORT (fo + fi * 12 + 6) cy
+        SET sum1 = (sum1 * 31 + w + 11) MODULO 1000003
+        SET sum1 = (sum1 * 31 + h + 13) MODULO 1000003
+        SET sum1 = (sum1 * 31 + cx + 32768) MODULO 1000003
+        SET sum1 = (sum1 * 31 + cy + 32768) MODULO 1000003
+        SET sum2 = (sum2 * 37 + w + 11) MODULO 999983
+        SET sum2 = (sum2 * 37 + h + 13) MODULO 999983
+        SET sum2 = (sum2 * 37 + cx + 32768) MODULO 999983
+        SET sum2 = (sum2 * 37 + cy + 32768) MODULO 999983
+      END
+    END
+  END
+END
+
+// Whether the game's BAM `name` exists and has the frame geometry sums `sum1` and `sum2`
+// (hg_bam_geometry_sum).
+DEFINE_ACTION_FUNCTION hg_bam_geometry_matches
+  INT_VAR sum1 = 0
+          sum2 = 0
+  STR_VAR name = ~~
+  RET ok
+BEGIN
+  OUTER_SET ok = 0
+  ACTION_IF FILE_EXISTS_IN_GAME ~%name%.bam~ BEGIN
+    COPY_EXISTING - ~%name%.bam~ ~override~
+      LPF hg_bam_decompress END
+      LPF hg_bam_geometry_sum RET s1 = sum1 s2 = sum2 END
+      SET ok = (s1 = sum1) AND (s2 = sum2)
+  END
+END
+
+// Weapon layer `dst` from the mod's art BAM `art` (a path; BAM or BAMC, written
+// decompressed): the art keeps its frames and takes the palette of the game's BAM `palette`,
+// whose colour ranges its pixel values refer to; `remap_2h` maps the two-handed attack cycles
+// onto the slash cycles, as for the body. Fails when the two BAMs differ in cycle count.
+DEFINE_ACTION_FUNCTION hg_copy_weapon_art
+  INT_VAR remap_2h = 0
+  STR_VAR art = ~~
+          palette = ~~
+          dst = ~~
+BEGIN
+  ACTION_CLEAR_ARRAY hga_pal
+  COPY_EXISTING - ~%palette%.bam~ ~override~
+    LPF hg_bam_decompress END
+    READ_BYTE 0x0a hga_ncy
+    READ_LONG 0x10 po
+    FOR (i = 0; i < 256; ++i) BEGIN
+      READ_LONG (po + i * 4) v
+      SET $hga_pal(~%i%~) = v
+    END
+  COPY ~%art%~ ~override/%dst%.bam~
+    LPF hg_bam_decompress END
+    READ_BYTE 0x0a ncy
+    PATCH_IF (ncy != hga_ncy) BEGIN
+      PATCH_FAIL ~%art% has %ncy% cycles, %palette%.bam %hga_ncy%~
+    END
+    READ_LONG 0x10 po
+    FOR (i = 0; i < 256; ++i) BEGIN
+      WRITE_LONG (po + i * 4) $hga_pal(~%i%~)
+    END
+    PATCH_IF remap_2h BEGIN
+      LPF hg_bam_copy_cycles INT_VAR from = 0 to = 16 count = 8 END
+    END
+END
+
+// Whether no BAM of the game (key or override) has a name that starts with `prefix`.
+DEFINE_ACTION_FUNCTION hg_bam_prefix_free
+  STR_VAR prefix = ~~
+  RET free
+BEGIN
+  OUTER_SET free = 1
+  COPY_EXISTING_REGEXP GLOB ~^%prefix%.*\.bam$~ ~override~
+    SET free = 0
+  BUT_ONLY IF_EXISTS   // no match is no error
+END
+
+// A row `label` for race `id` in the campaign race table in the buffer: the strings
+// `name_ref`, `desc_ref` (-1: not offered in character creation), `upper_ref` and `bio_ref`
+// go into the columns NAME, DESCSTR, UPPERCASE and BIOGRAPHY wherever they are, `id` into
+// ID, and any other column gets the table's default value. The games fill NAME with the
+// lower-case name the race list shows ("half-orc") and UPPERCASE with the capitalized one the
+// record screen shows ("Half-Orc"); the record screen finds a race's row by its ID. Character creation lists the
+// races whose row has a description, keyed by row number, so the row goes in front of the
+// first row without one: behind such a row it would leave a gap in the list, where the race
+// menu stops (lab run 14). At the end when every row has a description. Nothing (`added`
+// 0) when the table has a row `label` or a row for race `id` already, or no ID column.
+DEFINE_PATCH_FUNCTION hg_race_row
+  INT_VAR id = 0
+          name_ref = 0 - 1
+          desc_ref = 0 - 1
+          upper_ref = 0 - 1
+          bio_ref = 0 - 1
+  STR_VAR label = ~~
+  RET added
+BEGIN
+  SET added = 0
+  LPF hg_2da_layout RET ncols drow nrows hrow END
+  LPF hg_2da_column STR_VAR name = ~ID~ RET cid = column END
+  LPF hg_2da_column STR_VAR name = ~DESCSTR~ RET cdesc = column END
+  READ_2DA_ENTRY 1 0 1 default
+  SET taken = (cid = 0)
+  SET at = drow + nrows
+  FOR (r = drow + nrows - 1; r >= drow; r = r - 1) BEGIN
+    READ_2DA_ENTRY r 0 ncols lbl
+    READ_2DA_ENTRY r cid ncols rid
+    PATCH_IF (~%lbl%~ STRING_EQUAL_CASE ~%label%~) OR ((IS_AN_INT rid) AND (rid = id)) BEGIN
+      SET taken = 1
+    END
+    PATCH_IF (cdesc > 0) BEGIN
+      READ_2DA_ENTRY r cdesc ncols d
+      PATCH_IF (~%d%~ STRING_EQUAL ~-1~) BEGIN SET at = r END
+    END
+  END
+  PATCH_IF NOT taken BEGIN
+    SPRINT row ~%label%~
+    FOR (c = 0; c < ncols - 1; ++c) BEGIN
+      READ_2DA_ENTRY hrow c (ncols - 1) head
+      TO_UPPER head
+      PATCH_IF (~%head%~ STRING_EQUAL ~ID~) BEGIN
+        SPRINT v ~%id%~
+      END ELSE PATCH_IF (~%head%~ STRING_EQUAL ~NAME~) BEGIN
+        SPRINT v ~%name_ref%~
+      END ELSE PATCH_IF (~%head%~ STRING_EQUAL ~DESCSTR~) BEGIN
+        SPRINT v ~%desc_ref%~
+      END ELSE PATCH_IF (~%head%~ STRING_EQUAL ~UPPERCASE~) BEGIN
+        SPRINT v ~%upper_ref%~
+      END ELSE PATCH_IF (~%head%~ STRING_EQUAL ~BIOGRAPHY~) BEGIN
+        SPRINT v ~%bio_ref%~
+      END ELSE BEGIN
+        SPRINT v ~%default%~
+      END
+      SPRINT row ~%row% %v%~
+    END
+    INSERT_2DA_ROW at ncols ~%row%~
+    SET added = 1
+  END
+END
+
+// Character creation's race choice through cbprRaceSelect, added to the end of UI.MENU: the
+// engine creates only its seven standard races (lab run 14b: race 111 got no class), so
+// choosing race `race` selects race `template` instead and sets the global
+// CBPR_HOBGOBLIN_CHARGEN to 1; any other race sets it to 2. Every call
+// createCharScreen:OnRaceSelectButtonClick( in UI.MENU goes through it. Where the UI takes
+// the race part of the biography from the Lua table bioRaceData by the race the list offers
+// (EET does), choosing race `race` gives it an entry there: race `template`'s, each value
+// that `bio_map` (Lua table fields, "[strref] = strref, ...") maps replaced. `routed`: 1 when
+// UI.MENU routes the choice (also when it did already), 0 when it has no such call; with
+// `dry_run` 1 nothing changes and `routed` tells whether it would.
+DEFINE_ACTION_FUNCTION hg_route_race_select
+  INT_VAR race = 0
+          template = 0
+          dry_run = 0
+  STR_VAR bio_map = ~~
+  RET routed
+BEGIN
+  OUTER_SET routed = 0
+  OUTER_SPRINT hgr_block ~~~~~
+`
+-- Chriz BG Playable Races: race %race% (the hobgoblin) in character creation. The engine
+-- creates only its seven standard races, so choosing it creates race %template% and notes the
+-- choice in a global; the world scripts then make the protagonist a hobgoblin.
+function cbprRaceSelect(id)
+	local chosen = 2
+	if id == %race% then
+		chosen = 1
+		id = %template%
+		pcall(cbprRaceBio)
+	end
+	pcall(function() C:SetGlobal("CBPR_HOBGOBLIN_CHARGEN", "GLOBAL", chosen) end)
+	createCharScreen.OnRaceSelectButtonClick(createCharScreen, id)
+end
+-- Where the biography's race part comes from bioRaceData (EET), race %race% gets the entry of
+-- race %template%, with its own biography in place of that race's.
+function cbprRaceBio()
+	if type(bioRaceData) ~= "table" then return end
+	local base
+	for _, e in ipairs(bioRaceData) do
+		if e[1] == %race% then return end
+		if e[1] == %template% then base = e end
+	end
+	if base then
+		local bio = {%bio_map%}
+		local e = {%race%}
+		for i = 2, #base do e[i] = bio[base[i]] or base[i] end
+		table.insert(bioRaceData, e)
+	end
+end
+`
+~~~~~
+  ACTION_IF FILE_EXISTS_IN_GAME ~ui.menu~ BEGIN
+    ACTION_IF dry_run BEGIN
+      COPY_EXISTING - ~ui.menu~ ~override~
+        SET routed = (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~createCharScreen:OnRaceSelectButtonClick(~) >= 0)
+                     OR (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~cbprRaceSelect(~) >= 0)
+    END ELSE BEGIN
+      COPY_EXISTING ~ui.menu~ ~override~
+        REPLACE_TEXTUALLY CASE_SENSITIVE EXACT_MATCH ~createCharScreen:OnRaceSelectButtonClick(~ ~cbprRaceSelect(~
+        PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~cbprRaceSelect(~) >= 0) BEGIN
+          SET routed = 1
+          PATCH_IF (INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~function cbprRaceSelect(~) < 0) BEGIN
+            SET tail = BUFFER_LENGTH
+            INSERT_BYTES tail (STRING_LENGTH ~%hgr_block%~)
+            WRITE_ASCIIE tail ~%hgr_block%~
+          END
+        END
+      BUT_ONLY
+    END
+  END
+END
+
+// The entry in the column `value_col` of the first row whose column `key_col` holds `key`
+// (letter case ignored), in the 2DA table in the buffer; `found` 0 and `value` empty when no
+// row matches or a column is missing.
+DEFINE_PATCH_FUNCTION hg_2da_lookup
+  STR_VAR key_col = ~~
+          key = ~~
+          value_col = ~~
+  RET found
+      value
+BEGIN
+  SET found = 0
+  SPRINT value ~~
+  LPF hg_2da_column STR_VAR name = EVAL ~%key_col%~ RET kc = column END
+  LPF hg_2da_column STR_VAR name = EVAL ~%value_col%~ RET vc = column END
+  PATCH_IF (kc > 0) AND (vc > 0) BEGIN
+    LPF hg_2da_layout RET ncols drow nrows END
+    FOR (r = drow; (r < drow + nrows) AND NOT found; ++r) BEGIN
+      READ_2DA_ENTRY r kc ncols k
+      PATCH_IF (~%k%~ STRING_EQUAL_CASE ~%key%~) BEGIN
+        READ_2DA_ENTRY r vc ncols value
+        SET found = 1
+      END
+    END
+  END
+END
+
+// The thief skill row of player race `race` (1-7) in SKILLRAC.2DA, read as the engine reads
+// it. Baldur.exe names the rows of its seven races itself (HUMAN, ELF, HALF_ELF, DWARF,
+// HALFLING, GNOME, HALFORC), so no other race gets a row from the table, race 111 included,
+// even from a row of its own name (lab runs 15c and 15d). `bonuses`: opcode => value for each
+// skill whose value is not 0 (op92 pick pockets, op90 open locks, op91 find traps, op59 move
+// silently, op275 hide in shadows, op276 detect illusion, op277 set traps); a missing row or
+// column reads as the table's default value, as in the engine. `found`: whether the table has
+// the row.
+DEFINE_ACTION_FUNCTION hg_race_skill_bonuses
+  INT_VAR race = 0
+  RET found
+  RET_ARRAY bonuses
+BEGIN
+  ACTION_CLEAR_ARRAY bonuses
+  OUTER_SET found = 0
+  ACTION_DEFINE_ASSOCIATIVE_ARRAY hgsb_row BEGIN
+    1 => HUMAN   2 => ELF   3 => HALF_ELF   4 => DWARF   5 => HALFLING   6 => GNOME   7 => HALFORC
+  END
+  ACTION_DEFINE_ASSOCIATIVE_ARRAY hgsb_op BEGIN
+    PICK_POCKETS => 92   OPEN_LOCKS => 90   FIND_TRAPS => 91   MOVE_SILENTLY => 59
+    HIDE_IN_SHADOWS => 275   DETECT_ILLUSION => 276   SET_TRAPS => 277
+  END
+  ACTION_IF (VARIABLE_IS_SET EVAL ~hgsb_row_%race%~) AND (FILE_EXISTS_IN_GAME ~skillrac.2da~) BEGIN
+    OUTER_SPRINT hgsb_label $hgsb_row(~%race%~)
+    COPY_EXISTING - ~skillrac.2da~ ~override~
+      READ_2DA_ENTRY 1 0 1 hgsb_default
+      LPF hg_2da_layout RET ncols drow nrows END
+      SET row = 0 - 1
+      FOR (r = drow; (r < drow + nrows) AND (row < 0); ++r) BEGIN
+        READ_2DA_ENTRY r 0 ncols lbl
+        PATCH_IF (~%lbl%~ STRING_EQUAL_CASE ~%hgsb_label%~) BEGIN SET row = r END
+      END
+      SET found = (row >= 0)
+      PHP_EACH hgsb_op AS col => op BEGIN
+        SPRINT v ~%hgsb_default%~
+        PATCH_IF (row >= 0) BEGIN
+          LPF hg_2da_column STR_VAR name = EVAL ~%col%~ RET c = column END
+          PATCH_IF (c > 0) BEGIN READ_2DA_ENTRY row c ncols v END
+        END
+        PATCH_IF (IS_AN_INT v) BEGIN
+          PATCH_IF (v != 0) BEGIN SET $bonuses(~%op%~) = v END
+        END
+      END
+  END
+END
+
+// Race `race` in character creation, as row `label` (hg_race_row) of every race table the
+// campaigns use (CAMPAIGN.2DA column RACETEXT, and RACETEXT.2DA itself) that the game has:
+// the strings `name_ref` and `upper_ref`; the description `desc_ref` where UI.MENU can route
+// the choice to race `template` (hg_route_race_select), else -1, so the race list leaves the
+// row out; the biography `bio_ref` in each table where race `template` has one, else -1.
+// Then the choice is routed, `bio_ref` taking the place of race `template`'s biographies
+// there. `tables`: how many tables got the row; with none the choice is not routed.
+// `routed`: whether it is.
+DEFINE_ACTION_FUNCTION hg_offer_race
+  INT_VAR race = 0
+          template = 0
+          name_ref = 0 - 1
+          desc_ref = 0 - 1
+          upper_ref = 0 - 1
+          bio_ref = 0 - 1
+  STR_VAR label = ~~
+  RET tables
+      routed
+BEGIN
+  ACTION_CLEAR_ARRAY hgo_tables
+  ACTION_CLEAR_ARRAY hgo_campaign
+  ACTION_CLEAR_ARRAY hgo_bios
+  OUTER_SPRINT $hgo_tables(~RACETEXT~) ~RACETEXT~
+  ACTION_IF FILE_EXISTS_IN_GAME ~campaign.2da~ BEGIN
+    COPY_EXISTING - ~campaign.2da~ ~override~
+      LPF hg_campaign_column STR_VAR name = ~RACETEXT~ RET_ARRAY hgo_campaign = values END
+  END
+  ACTION_PHP_EACH hgo_campaign AS t => v BEGIN
+    OUTER_SPRINT $hgo_tables(~%t%~) ~%t%~
+  END
+  // The template's biography in each table.
+  ACTION_PHP_EACH hgo_tables AS t => v BEGIN
+    OUTER_SET $hgo_tbio(~%t%~) = 0 - 1
+    ACTION_IF FILE_EXISTS_IN_GAME ~%t%.2da~ BEGIN
+      COPY_EXISTING - ~%t%.2da~ ~override~
+        LPF hg_2da_lookup STR_VAR key_col = ~ID~ key = EVAL ~%template%~ value_col = ~BIOGRAPHY~
+          RET found value END
+        PATCH_IF found AND (IS_AN_INT value) BEGIN
+          PATCH_IF (value >= 0) BEGIN
+            SET $hgo_tbio(~%t%~) = value
+            SPRINT $hgo_bios(~%value%~) ~%bio_ref%~
+          END
+        END
+    END
+  END
+  OUTER_SPRINT bio_map ~~
+  ACTION_PHP_EACH hgo_bios AS from => to BEGIN
+    OUTER_SPRINT bio_map ~%bio_map%[%from%] = %to%, ~
+  END
+  LAF hg_route_race_select INT_VAR race template dry_run = 1 RET routable = routed END
+  OUTER_SET tables = 0
+  ACTION_PHP_EACH hgo_tables AS t => v BEGIN
+    ACTION_IF FILE_EXISTS_IN_GAME ~%t%.2da~ BEGIN
+      OUTER_SET tbio = $hgo_tbio(~%t%~)
+      OUTER_SET row_desc = routable ? desc_ref : (0 - 1)
+      OUTER_SET row_bio = (tbio >= 0) ? bio_ref : (0 - 1)
+      COPY_EXISTING ~%t%.2da~ ~override~
+        LPF hg_race_row INT_VAR id = race name_ref desc_ref = row_desc upper_ref bio_ref = row_bio
+          STR_VAR label RET added END
+        SET tables += added
+      BUT_ONLY
+    END
+  END
+  OUTER_SET routed = 0
+  ACTION_IF routable AND (tables > 0) BEGIN
+    LAF hg_route_race_select INT_VAR race template STR_VAR bio_map RET routed END
   END
 END
