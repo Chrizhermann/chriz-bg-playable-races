@@ -22,10 +22,14 @@
   protagonist's own race's, and no dual-classing.
 - Weapon groups: each melee look code is drawn as its weapon group (sword, axe, dagger,
   mace, morning star, flail, hammer, club, staff, spear, halberd, sling), with further
-  sprite bodies (`HGP1`-`HGP9`) where codes of different groups share a first letter. With
-  the generated weapon art (`tools/hob_weapon_art.py`) in `hobgoblin/weapons`, each group
-  gets its own weapon layer, coloured with the game's palette; without it, or on a
-  hobgoblin sprite with other frame geometry, every melee weapon shows the sword.
+  sprite bodies (`HGP1`-`HGP9`) where codes of different groups share a first letter. Each
+  group gets its own weapon layer from the weapon art shipped in `hobgoblin/weapons`,
+  coloured with the game's palette; on a hobgoblin sprite with other frame geometry every
+  melee weapon shows the sword.
+- Weapon art: the mod's own drawing (`tools/hob_weapon_art.py`), each group's weapon drawn
+  frame by frame where the game's hobgoblin holds its sword, with no game pixels and no
+  palette. A test checks the shipped files. The installer stops before changing anything
+  when the art is missing.
 - Fixed: 2DA tables without data rows (the `CAMPAIGN.2DA` of BG:EE and BG2:EE 2.7) had
   their column names read as a data row.
 

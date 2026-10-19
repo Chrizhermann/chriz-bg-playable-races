@@ -32,13 +32,14 @@ creation uses for the hobgoblin: 100 the half-orc, 101 the human.
 4. **Sprite files.** Each melee body is the hobgoblin with the two-handed attack (the bow
    shot, cycles 16-23) replaced by the one-handed slash (cycles 0-7). `HGPR*` keeps the bow
    shot for launchers. Each body gets one weapon layer per first letter in use: the group's
-   art from `hobgoblin/weapons` (drawn by `tools/hob_weapon_art.py` along the game's sword
-   layer `MHOBS*`), coloured with that sword layer's palette, when the game's hobgoblin
+   art, shipped in `hobgoblin/weapons` (drawn by `tools/hob_weapon_art.py` along the game's
+   sword layer `MHOBS*`), coloured with that sword layer's palette, when the game's hobgoblin
    sprites have the frame geometry the art was drawn for. The art lists two checksums per
    sprite file over its cycles, frame sizes and centres; the BG:EE, BG2:EE and EET sprites
    all match. Swords get the hobgoblin's own sword layer, and so does every group without
-   the art or on another geometry (another mod's hobgoblin sprite; the installer warns).
-   Launchers get the hobgoblin's bow.
+   art in `art.tpa` or on another geometry (another mod's hobgoblin sprite; the installer
+   warns). Launchers get the hobgoblin's bow. Without `art.tpa` the mod is incompletely
+   unpacked, and the installer stops before it changes anything.
 5. **Race in character creation.** A row `HOBGOBLIN` for race 111 in every race table a
    campaign uses (column `RACETEXT` of `CAMPAIGN.2DA`, EET: `RACETEXT`, `BGRACTXT`,
    `SODRACE`; and `RACETEXT.2DA` itself), in front of the first row without a description:
@@ -291,6 +292,9 @@ The weapon art, 2026-10-18:
   sword and the drawn weapons alike were not to be seen while the arm was raised for the
   blow. In every frame of the four sprite files where the sword
   shows, every group's layer has pixels (checked on the EET sprites).
+- The art ships with the mod (decided 2026-10-19). From the game the tool takes only where
+  the hand is and where the body covers it, frame by frame; the pixels are its own drawing
+  in its own few colour indices, and the files carry no palette.
 
 ## Tests
 
@@ -311,6 +315,8 @@ needed):
   its tie order, codes in any letter case, slings), and the free body names;
 - the frame-geometry checksums (the same as `tools/hob_weapon_art.py` computes), and the
   weapon art copied with the game's palette;
+- the shipped weapon art: one file per group and sprite file, no palette, no colour but the
+  tool's own, the same cycles in every group, and the checksums of all eight sprite files;
 - the race in character creation: the row in a race table (placement behind the described
   rows, columns in any order, a taken label or race), the routed race selection in
   `UI.MENU` (from a BIFF or override, a second call, the dry run, the biography entry),
@@ -330,9 +336,6 @@ The tests include uninstall. Any WeiDU 249 or newer works, also a mod's `setup-*
 
 ## Open
 
-- The weapon art in the repository: it is drawn from an installed game's hobgoblin sprites
-  (`tools/hob_weapon_art.py`), so whether it ships here, or the installer draws it on the
-  player's machine, is still to decide.
 - Listening to the voice in a real game: the lab runs muted, so it checked subtitles and
   the engine's state, not the sound.
 - More voice lines.

@@ -30,3 +30,4 @@ Hobgoblins have the following traits:
 Character creation shows a human. The character becomes a hobgoblin, in looks and race, as soon as the game begins. For a hobgoblin's voice, choose Hobgoblin among the voices.~
 @16 = ~Character creation with human rules~
 @17 = ~Every race table has a race 111 row of another mod already, so character creation does not offer this mod's hobgoblin. Protagonists get the one-use ability "Become a Hobgoblin" instead.~
+@23 = ~The mod's weapon art (chriz-bg-playable-races/hobgoblin/weapons) is missing. Unpack the whole mod again.~

@@ -10,6 +10,10 @@
 // for its code while equipped, but only a creature carrying the HG_HOBGOBLIN_PC spell
 // state (the transformed PC); everyone else is protected from the switch effect.
 
+// The weapon art ships with the mod (hobgoblin/weapons); without it the package is
+// incomplete, so stop before changing anything.
+ACTION_IF NOT FILE_EXISTS ~chriz-bg-playable-races/hobgoblin/weapons/art.tpa~ BEGIN FAIL @23 END
+
 // ---------------------------------------------------------------- look codes in use
 // Melee weapon types (dagger, mace, sling, small/large sword, hammer, morning star, flail,
 // axe, staff, spear, halberd, club, IWD great/bastard sword) and launchers (bow, crossbow).
@@ -144,23 +148,19 @@ OUTER_FOR (b = 0; b < hg_nbodies; ++b) BEGIN
   END
   LAF hg_make_inv_bam STR_VAR src = ~mhobg1~ dst = EVAL ~%body%inv~ END
 END
-// Melee weapon layers, one per body and letter in use: the group's art from
+// Melee weapon layers, one per body and letter in use: the group's art, shipped in
 // hobgoblin/weapons (drawn by tools/hob_weapon_art.py along the game's sword layer), with
 // the palette of that layer, when the game's hobgoblin sprites have the frame geometry the
 // art was drawn for. Swords, and every group on other sprites, get the hobgoblin's own
 // sword layer.
-OUTER_SET hg_art_ok = 0
-OUTER_SPRINT hg_art_groups ~~
-ACTION_IF FILE_EXISTS ~chriz-bg-playable-races/hobgoblin/weapons/art.tpa~ BEGIN
-  INCLUDE ~chriz-bg-playable-races/hobgoblin/weapons/art.tpa~
-  OUTER_SET hg_art_ok = 1
-  ACTION_PHP_EACH hg_art_geo1 AS res => s1 BEGIN
-    OUTER_SET s2 = $hg_art_geo2(~%res%~)
-    LAF hg_bam_geometry_matches INT_VAR sum1 = s1 sum2 = s2 STR_VAR name = EVAL ~%res%~ RET ok END
-    ACTION_IF NOT ok BEGIN OUTER_SET hg_art_ok = 0 END
-  END
-  ACTION_IF NOT hg_art_ok BEGIN WARN @7 END
+INCLUDE ~chriz-bg-playable-races/hobgoblin/weapons/art.tpa~
+OUTER_SET hg_art_ok = 1
+ACTION_PHP_EACH hg_art_geo1 AS res => s1 BEGIN
+  OUTER_SET s2 = $hg_art_geo2(~%res%~)
+  LAF hg_bam_geometry_matches INT_VAR sum1 = s1 sum2 = s2 STR_VAR name = EVAL ~%res%~ RET ok END
+  ACTION_IF NOT ok BEGIN OUTER_SET hg_art_ok = 0 END
 END
+ACTION_IF NOT hg_art_ok BEGIN WARN @7 END
 OUTER_FOR (i = 0; i < hg_nlayers; ++i) BEGIN
   OUTER_SET lb = $hg_layer_body(~%i%~)
   OUTER_SPRINT body $hg_body(~%lb%~)

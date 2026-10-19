@@ -1,0 +1,25 @@
+// Written by tools/hob_weapon_art.py; do not edit (run the tool again instead).
+// The weapon groups drawn in this folder, and the frame geometry (hg_bam_geometry_sum) of
+// the game sprites the art was drawn for: the installer uses the art only on sprites with
+// the same geometry.
+OUTER_SPRINT hg_art_groups ~axe halberd spear staff mace morningstar hammer club flail dagger sling~
+ACTION_DEFINE_ASSOCIATIVE_ARRAY hg_art_geo1 BEGIN
+  MHOBG1 => 770866
+  MHOBG1E => 968823
+  MHOBG2 => 630843
+  MHOBG2E => 432650
+  MHOBSG1 => 790437
+  MHOBSG1E => 578592
+  MHOBSG2 => 294879
+  MHOBSG2E => 806989
+END
+ACTION_DEFINE_ASSOCIATIVE_ARRAY hg_art_geo2 BEGIN
+  MHOBG1 => 432835
+  MHOBG1E => 397655
+  MHOBG2 => 722871
+  MHOBG2E => 151390
+  MHOBSG1 => 553394
+  MHOBSG1E => 708078
+  MHOBSG2 => 434024
+  MHOBSG2E => 450383
+END

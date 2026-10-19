@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -673,6 +674,73 @@ def weapon_art_copy(work, weidu):
     out = bad.install()
     if not fg.failed(out) or bad.override() != before:
         fails.append("art with 20 cycles: the install did not fail cleanly")
+    return fails
+
+
+@test
+def shipped_weapon_art(work, weidu):
+    """The art in hobgoblin/weapons is the tool's own drawing: one BAMC per group art.tpa names
+    and sprite file, no palette (all zero), no colour but the tool's wood and metal and the
+    transparent 0, the same cycles in every group's file for a sprite file, and art.tpa's
+    geometry sums for each sprite file the art was drawn along."""
+    folder = MOD / "hobgoblin/weapons"
+    if not (folder / "art.tpa").is_file():
+        return ["no hobgoblin/weapons/art.tpa"]
+    tpa = (folder / "art.tpa").read_text(encoding="ascii")
+    found = re.search(r"OUTER_SPRINT hg_art_groups ~([^~]*)~", tpa)
+    groups = found.group(1).split() if found else []
+    fails = [] if sorted(groups) == sorted(art.GROUPS) else [f"art.tpa groups {groups}, want {list(art.GROUPS)}"]
+    want = {f"{g}_{sfx.lower()}.bam" for g in groups for sfx in art.SFX}
+    have = {p.name for p in folder.iterdir()} - {"art.tpa"}
+    if have != want:
+        fails.append(f"files: missing {sorted(want - have)}, extra {sorted(have - want)}")
+    colours = {0, art.WOOD_HI, art.WOOD, art.WOOD_DARK, art.WOOD_CAP,
+               art.MET_HI, art.MET_EDGE, art.MET, art.MET_DARK, art.MET_LINE}
+    cycle_sizes = {}
+    for name in sorted(want & have):
+        data = (folder / name).read_bytes()
+        if data[:8] != b"BAMCV1  ":
+            fails.append(f"{name}: no BAMC")
+            continue
+        frames, cycles, _, palette = fg.read_bam(zlib.decompress(data[12:]))
+        if any(palette):
+            fails.append(f"{name}: has a palette")
+        if extra := sorted(set().union(*(set(f[4]) for f in frames)) - colours):
+            fails.append(f"{name}: colours {extra}")
+        cycle_sizes.setdefault(name.split("_")[1], set()).add(tuple(count for count, _ in cycles))
+    fails += [f"{sfx}: the groups' cycles differ" for sfx, sizes in sorted(cycle_sizes.items()) if len(sizes) > 1]
+    for n in (1, 2):
+        block = re.search(rf"hg_art_geo{n} BEGIN(.*?)END", tpa, re.S)
+        sums = dict(re.findall(r"(\w+) => (\d+)", block.group(1))) if block else {}
+        if sorted(sums) != sorted(art.SOURCES):
+            fails.append(f"hg_art_geo{n} lists {sorted(sums)}, want {sorted(art.SOURCES)}")
+    return fails
+
+
+@test
+def missing_weapon_art(work, weidu):
+    """Without the weapon art (an incompletely unpacked mod) the component stops with its
+    message before it changes any game file, and is not installed."""
+    sprites = {name: creature_bam()[0] for name in ("mhobg1.bam", "mhobsg1.bam", "mhobbg1.bam")}
+    g = fg.FakeGame(work / "noart", weidu, "", override={"8100.ini": b"[general]\r\n", **sprites})
+    shutil.copy(REPO / "setup-chriz-bg-playable-races.tp2", g.root)
+    shutil.copytree(MOD, g.root / MOD.name, ignore=shutil.ignore_patterns("weapons", "backup"))
+    game_files = lambda: {k: v for k, v in g.tree().items()  # noqa: E731
+                          if not k.startswith(("chriz-bg-playable-races/", "setup-chriz-bg-playable-races"))}
+    before = game_files()
+    proc = subprocess.run([weidu, "setup-chriz-bg-playable-races.tp2", "--no-auto-tp2", "--noautoupdate",
+                           "--game", str(g.root), "--language", "0", "--use-lang", "en_US", "--force-install", "100",
+                           "--no-exit-pause", "--log", "weidu-noart.debug"],
+                          cwd=g.root, stdin=subprocess.DEVNULL, capture_output=True, timeout=120)
+    out = (proc.stdout + proc.stderr).decode("utf-8", "replace")
+    fails = []
+    if "weapon art (chriz-bg-playable-races/hobgoblin/weapons) is missing" not in out or not fg.failed(out):
+        fails.append(f"no stop with the missing-art message: {out[-600:]}")
+    if game_files() != before:
+        fails.append("game files changed")
+    log = g.root / "weidu.log"
+    if log.is_file() and "chriz-bg-playable-races" in log.read_text(encoding="latin-1").lower():
+        fails.append("the component is in WeiDU.log")
     return fails
 
 

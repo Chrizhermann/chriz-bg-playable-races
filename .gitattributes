@@ -1,2 +1,5 @@
 # Third-party helper kept byte for byte (EE Soundset Tool).
 chriz-bg-playable-races/lib/cd_add_soundset.tph -text
+
+# Weapon art (BAMC files): binary, never converted.
+*.bam binary

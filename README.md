@@ -1,9 +1,9 @@
 # Chriz BG Playable Races
 
 Monster protagonists for the Baldur's Gate Enhanced Editions. Each component turns the
-protagonist into a creature the game already has. The installer builds the sprites,
-weapon looks and armour colours from your installed game's own files, so the mod ships no
-game art or audio.
+protagonist into a creature the game already has. The installer builds the sprites and
+armour colours from your installed game's own files and draws the weapons with the mod's
+own weapon art, so the mod ships no game art or audio.
 
 **Status:** lab prototype `v0.2.0-proto`, not released. It has been tested only in a
 disposable lab copy of one EET install (BG2:EE 2.7.3.0) and with the offline tests.
@@ -38,10 +38,11 @@ hobgoblin.
   (orders and moving, battle cries, selection, hit, death, ...): choose **Hobgoblin** under
   Record > Customize > Voice.
 - The sprite follows the active weapon. Each melee weapon is drawn as its group (sword, axe,
-  dagger, mace, morning star, flail, hammer, club, staff, spear, halberd, sling) when the
-  weapon art is in `hobgoblin/weapons`; without it, every melee weapon is drawn as a sword.
-  Bows and crossbows are drawn as a bow, fists show no weapon, and two-handed weapons use
-  the one-handed slash instead of the bow shot.
+  dagger, mace, morning star, flail, hammer, club, staff, spear, halberd, sling), with the
+  weapon art in `hobgoblin/weapons`. If another mod replaced the hobgoblin sprite with one
+  whose frames differ, every melee weapon is drawn as a sword. Bows and crossbows are
+  drawn as a bow, fists show no weapon, and two-handed weapons use the one-handed slash
+  instead of the bow shot.
 - Body armour recolours the hobgoblin: leather brown, chain grey, plate steel, robes
   purple and blue. Plate and full plate share one colour because the game gives both the
   same armour code. Without armour the protagonist's own colours return.
@@ -78,8 +79,6 @@ Verified in the lab on 2026-10-17 and 2026-10-18:
 
 Not done yet:
 
-- The weapon art is not in the repository yet. `tools/hob_weapon_art.py` draws it from an
-  installed game's hobgoblin sprites.
 - The voice has only the ten clips the game's hobgoblins have, so it repeats itself
   more than a full voice pack.
 
@@ -116,7 +115,8 @@ v0.1's six lines, which now play the new sound files under v0.1's subtitles and 
 orders silent.
 
 The component needs the game's hobgoblin animation (`8100.ini`, `MHOB*.BAM`) and
-stops with a message when it is missing. EEex is not required; the lab uses it only for
+stops with a message when it is missing. It also stops, before changing anything, when the
+mod's own weapon art is missing (an incompletely unpacked mod). EEex is not required; the lab uses it only for
 testing.
 
 ## Tests
@@ -131,8 +131,13 @@ or game files are needed. See [docs/hobgoblin.md](docs/hobgoblin.md#tests).
 ## Game files and voices
 
 Everything game-derived is built on the player's machine from their own copy of the game.
-Files generated from game data (sprites, inventory figures, sounds) never enter this
-repository. Voice lines made with voice cloning are not part of it either.
+Sprites, inventory figures and sounds made from game files never enter this repository.
+Voice lines made with voice cloning are not part of it either.
+
+The weapon art in `chriz-bg-playable-races/hobgoblin/weapons` is the mod's own drawing,
+made with `tools/hob_weapon_art.py`. The tool draws each weapon, frame by frame, where the
+game's hobgoblin holds its sword. The files contain no game pixels and no palette; the
+installer colours them with the palette of the game's own hobgoblin sword.
 
 The voice is registered with `lib/cd_add_soundset.tph` from the
 [EE Soundset Tool](https://github.com/Gibberlings3/EE_soundset_tool) by CamDawg and Graion
