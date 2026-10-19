@@ -106,7 +106,14 @@ the roll: the engine rolls within `ABRACERQ` and adds `ABRACEAD` afterwards (lab
    `op318` makes every creature without the marker immune to the switch, then `op177`
    applies an EFF with `op53` to the INI for the weapon's code (else its body's base INI).
    Ammunition and darts stay untouched, because the engine treats quiver items as always
-   equipped.
+   equipped. When a save loads, the engine equips the items before the saved effects are in
+   force, so each `op318` would shield the marked hobgoblin too. So the installer also copies
+   `hobgoblin/M_CBPRHG.lua` into `override`: at game start EEex registers it as a listener
+   that runs for each creature as it loads, after its saved effects are read and before its
+   items are equipped. A creature whose saved effects set the marker (`op328`, special not 0,
+   the state in parameter 2, not delayed) gets the marker state there; nothing is saved, and
+   every other creature stays as it is. `CBPR_HobgoblinLook.Status` and the console tell
+   whether it is active.
 8. **Armour colours.** Body armour with look code `2A` (leather), `3A` (chain), `4A`
    (plate, full plate) or `2W`/`3W`/`4W` (robes) gets an equipped `op272` that attaches
    `HGA<code>.EFF` to the wearer once per second. That EFF's `op326` applies
@@ -322,7 +329,7 @@ its own (next section). The engine facts below hold without the hook:
   the hook and on again as a human (component 101, run 16c). A pending
   level-up, and level 1, keep the button off for every race (runs 15d, 16b).
 
-The race of its own, 2026-10-19 (lab runs 17 to 18c, EET over BG2:EE 2.7.3.0 with EEex
+The race of its own, 2026-10-19 (lab runs 17 to 19, EET over BG2:EE 2.7.3.0 with EEex
 v1.2.0, the lab copy of Chris's install, where Artisan's Kitpack opens all classes to all
 races):
 
@@ -365,11 +372,29 @@ races):
   helmet was destroyed: the race gives it, also to hobgoblins made in older versions.
 - The weapon look after loading (run 18b): a save made with the staff selected loaded with the
   melee base INI (`0x8101`). At load the staff's `op318` (immune unless the marker is set) was
-  in its equipped effects and its `op177` was not: the engine applies equipped effects before
-  the marker state is in force. Selecting the fist and the staff again gave `0x8108`. The
-  switches date from v0.1; earlier lab saves had fists selected (see Open).
-- Uninstall (runs 18, 18b, 18c): all 40,866 files under `override` and `EEex_scripts` matched
-  the state before the install.
+  in its equipped effects and its `op177` was not. Selecting the fist and the staff again gave
+  `0x8108`. The switches date from v0.1; earlier lab saves had fists selected. The cause, in
+  the engine code of 2.7.3.0: `CGameSprite::Unmarshal` computes the creature's stats from its
+  base values and reads its saved effects into the timed effect list without applying them;
+  then `CGameSpriteEquipment::Unmarshal` equips each item and applies its equipped effects at
+  once, against those stats, which lack the marker. `op318` checks its `SPLPROT.2DA` row each
+  time it is applied and is dropped only when the check fails, while `op177` checks for an
+  immunity only on its first application. So the `op318` stayed, and every later recalculation
+  applies the equipped effects before the timed ones (the marker's `op328`). Selecting a weapon
+  equips it again against the full stats, which is why that helped.
+- The fix (run 19, 2026-10-19): EEex's `EEex_Sprite_AddLoadedListener` runs inside
+  `CGameSprite::Unmarshal` after the timed effect list is read and before the items are
+  equipped (EEex v1.2.0 in the lab; the same hook in v1.3.1's code). `M_CBPRHG.lua` sets the
+  marker state there for a creature whose saved effects carry the marker. Saves made with a
+  staff, an axe and a bow selected loaded with `0x8108`, `0x8103` and `0x8102`, right away and
+  5 seconds later, with the `op177` in force and the `op318` gone; so did the run 18b save.
+  With the listener switched off in the lab, the axe save showed the old bug again (`0x8101`).
+  An enemy vanilla hobgoblin (`HOBGOB`, EA 255) given an axe kept `0x8100` before saving and
+  after each load (`op318` kept, no `op177`). The five companions of the run 11 save kept their
+  animations; four held weapons with a switch (hammer, two-handed sword, two bows), whose
+  `op318` stayed, with no `op177`. The console reported the listener active for spell state 195.
+- Uninstall (runs 18, 18b, 18c, 19): all 40,866 files under `override` and `EEex_scripts`
+  matched the state before the install.
 
 The weapon art, 2026-10-18:
 
@@ -425,6 +450,8 @@ needed):
   another race has, numbers and labels the hook cannot take, no `ID` column, the hook's files
   from another mod's folder, uninstall; and that the hook's Lua, pattern file, installer and
   world script agree;
+- that the load listener and the installer agree: the same `SPLSTATE.IDS` name for the marker,
+  the race spell's `op328` as the listener counts it, and the copy into `override`;
 - the component's checks with the real tp2: no EEex, no script trigger, no hook functions, no
   executable, the engine code missing or twice, race number 153; each stops before any game
   file changes;
@@ -438,17 +465,13 @@ The tests include uninstall. Any WeiDU 249 or newer works, also a mod's `setup-*
 
 ## Open
 
-- The weapon look after loading a save (since v0.1): at load the engine applies a weapon's
-  equipped effects before the marker state is in force, so `op318` blocks the switch and the
-  hobgoblin shows its melee base INI (long sword and halberd) until the weapon changes (run
-  18b).
 - EEex v1.3.1, BG:EE and SoD outside EET, and game versions other than 2.7.3.0: not
   lab-tested.
 - Listening to the voice in a real game: the lab runs muted, so it checked subtitles and
   the engine's state, not the sound.
 - More voice lines.
 - Before a release: check the `HG*` resource names (`HGPM*`, `HGP1*`-`HGP9*`, `HGPR*`,
-  `HGE*`, `HGA*`, `HGPC*`), `CBPRRACE.2DA`, `CBPRRACE.db`, `M_CBPRRC.lua`, the label
-  `CBPR-CRuleTables::GetRaceString`, the Lua names `CBPR_RaceHook`,
-  `CBPR_HasCharacterAnimation` and `CBPR_GetRaceString_Original`, the global
-  `CBPR_HOBGOBLIN_RACE` and the voice set name `CBPRHG` against other mods.
+  `HGE*`, `HGA*`, `HGPC*`), `CBPRRACE.2DA`, `CBPRRACE.db`, `M_CBPRRC.lua`, `M_CBPRHG.lua`, the
+  label `CBPR-CRuleTables::GetRaceString`, the Lua names `CBPR_RaceHook`,
+  `CBPR_HasCharacterAnimation`, `CBPR_GetRaceString_Original` and `CBPR_HobgoblinLook`, the
+  global `CBPR_HOBGOBLIN_RACE` and the voice set name `CBPRHG` against other mods.

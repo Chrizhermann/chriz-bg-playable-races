@@ -1339,6 +1339,37 @@ def hook_files_other_mod(work, weidu):
     return fails
 
 
+@test
+def load_listener_files(work, weidu):
+    """The hobgoblin's load listener (M_CBPRHG.lua) and the installer agree: the Lua looks up the
+    spell state the installer gives the marker under the same SPLSTATE.IDS name, and counts the
+    effect the race spell sets it with (op328, special not 0, the state in parameter 2, a timing
+    that is not delayed); the installer copies the Lua into override."""
+    tpa = (MOD / "hobgoblin/hobgoblin.tpa").read_text(encoding="latin-1")
+    lua = (MOD / "hobgoblin/M_CBPRHG.lua").read_text(encoding="utf-8")
+    fails = []
+    symbols = set(re.findall(r"IDS_OF_SYMBOL \(~splstate~ ~(\w+)~\)", tpa)) | \
+        set(re.findall(r"APPEND ~splstate\.ids~ ~%hg_splstate% (\w+)~", tpa))
+    looked_up = re.findall(r'start:upper\(\) == "(\w+)"', lua)
+    if len(symbols) != 1 or looked_up != [s.upper() for s in symbols]:
+        fails.append(f"the installer names the state {sorted(symbols)}, the Lua looks up {looked_up}")
+    marks = re.findall(r"ADD_SPELL_EFFECT INT_VAR opcode = 328 ([^E]*)END", tpa)
+    fields = [dict(re.findall(r"(\w+) = (\w+)", m)) for m in marks]
+    if len(fields) != 1 or fields[0].get("parameter2") != "hg_splstate" or fields[0].get("special", "0") == "0":
+        fails.append(f"the race spell's op328: {fields}")
+    else:
+        timing = int(fields[0].get("timing", "0"))
+        test = re.search(r"return effect\.m_effectId == 328 and effect\.m_special ~= 0 and effect\.m_dWFlags == mark"
+                         r"\s+and \(timing < 3 or timing > 8\)", lua)
+        if not test:
+            fails.append("the Lua does not count op328 with special not 0 and the state in parameter 2")
+        elif 3 <= timing <= 8:
+            fails.append(f"the race spell's op328 has the delayed timing {timing}, which the Lua does not count")
+    if "COPY ~chriz-bg-playable-races/hobgoblin/M_CBPRHG.lua~ ~override~" not in tpa:
+        fails.append("the installer does not copy M_CBPRHG.lua into override")
+    return fails
+
+
 # --- The hobgoblin's race tables (race.tpa) -----------------------------------------------------
 
 RQ_COLS = ["MIN_STR", "MAX_STR", "MIN_DEX", "MAX_DEX", "MIN_CON", "MAX_CON", "MIN_INT", "MAX_INT", "MIN_WIS",

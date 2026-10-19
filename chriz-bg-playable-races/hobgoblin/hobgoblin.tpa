@@ -288,6 +288,10 @@ COPY_EXISTING_REGEXP GLOB ~^.+\.itm$~ ~override~
     END
   END
 BUT_ONLY
+// When a save loads, the engine equips the items before the saved effects give the marker state,
+// so each op318 would shield the marked PC too (lab run 18b). The EEex listener in M_CBPRHG.lua
+// gives a creature whose saved effects set the state that state before its items are equipped.
+COPY ~chriz-bg-playable-races/hobgoblin/M_CBPRHG.lua~ ~override~
 
 // ---------------------------------------------------------------- armour colours
 // While the marked PC wears body armour, the armour's class recolours the shoulder plates
