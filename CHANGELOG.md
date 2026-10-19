@@ -32,9 +32,11 @@
 - `lib/race_functions.tpa`: race tables read line by line (short rows, LF line ends, columns in any
   order), the pattern search in the executable, the race list of the hook.
   [docs/new-race-with-eeex.md](docs/new-race-with-eeex.md) explains the method for other races.
-- Known issue, since v0.1: after loading a save, a hobgoblin holding a weapon other than a long
-  sword or halberd shows no weapon until the weapon is changed (the engine applies the weapon's
-  equipped effects before the marker state is in force; lab run 18b).
+- The weapon look right after loading a save (wrong since v0.1): a hobgoblin holding a weapon
+  other than a long sword or halberd showed no weapon until the weapon was changed, because the
+  engine equips the items before the saved marker state is in force. An EEex listener
+  (`hobgoblin/M_CBPRHG.lua`) now gives a creature whose saved effects set the marker that state
+  before its items are equipped; no other creature is touched (lab runs 18b, 19).
 
 ## v0.2.0-proto (unreleased)
 

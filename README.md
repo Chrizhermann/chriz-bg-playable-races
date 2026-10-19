@@ -63,13 +63,14 @@ Install one of the two: they build the same hobgoblin and differ only in its abi
   same armour code. Without armour the protagonist's own colours return.
 - Companions and other creatures keep their looks, even with the same weapons and armour.
 
-Verified in the lab (latest: 2026-10-19, runs 18-18c, on a copy of a full EET install with
+Verified in the lab (latest: 2026-10-20, runs 18-20, on a copy of a full EET install with
 Artisan's Kitpack opening all classes to all races):
 
 - At game start the console reported the race hook active for HOBGOBLIN (111).
 - Character creation listed the hobgoblin with its description, and offered it the half-orc's
   21 classes and the same thief kits. 3,000 ability rolls of a thief stayed within
-  Constitution 12-19, Strength 6-18 and Wisdom and Charisma 3-17.
+  Constitution 12-19, Strength 6-18 and Wisdom and Charisma 3-17 with the stronger rules, and
+  within Constitution 5-18, Strength 6-18, Wisdom 3-18 and Charisma 3-17 with the book's.
 - A hobgoblin thief started the game as a hobgoblin, with infravision, the +1 to hit against
   elves and the race's thief skills: 21/21/16/26/16/15/5 for 6/6/6/6/6/5/5 spent points. The
   record screen named the race **Hobgoblin**.
@@ -77,6 +78,8 @@ Artisan's Kitpack opening all classes to all races):
   looks.
 - Saving and reloading kept the race, the looks, the marker that limits the weapon and armour
   looks to hobgoblins, and the hook.
+- Saves made with a staff, an axe or a bow in hand loaded with the hobgoblin holding that weapon,
+  without changing weapons. Companions, and an enemy hobgoblin given an axe, kept their looks.
 - Saves of v0.1 and v0.2 with a hobgoblin protagonist: after loading, the protagonist had the
   race's rules and the hatred of elves, and v0.2's own skill effects were gone, so nothing
   counted twice.
@@ -87,8 +90,6 @@ Artisan's Kitpack opening all classes to all races):
 
 Not done yet:
 
-- After loading a save, a hobgoblin holding a weapon other than a long sword or halberd shows
-  no weapon until the weapon is changed (since v0.1).
 - Not tested with EEex v1.3.1, BG:EE or SoD outside EET, or other game versions.
 - The voice has only the ten clips the game's hobgoblins have, so it repeats itself
   more than a full voice pack.
