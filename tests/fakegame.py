@@ -16,11 +16,16 @@ LIB = Path(os.environ.get("CBPR_TEST_LIB")
            or Path(__file__).resolve().parents[1] / "chriz-bg-playable-races" / "lib" / "hg_functions.tpa")
 # The EE Soundset Tool helper the library calls, as the mod ships it.
 TPH = Path(__file__).resolve().parents[1] / "chriz-bg-playable-races" / "lib" / "cd_add_soundset.tph"
+# The race library (CBPR_TEST_RACE_LIB: another copy), and the race hook's files it installs.
+RACE_LIB = Path(os.environ.get("CBPR_TEST_RACE_LIB")
+                or Path(__file__).resolve().parents[1] / "chriz-bg-playable-races" / "lib" / "race_functions.tpa")
+RACE_DIR = Path(__file__).resolve().parents[1] / "chriz-bg-playable-races" / "race"
 
 TP2_HEAD = r"""BACKUP ~cbprtest/backup~
 AUTHOR ~test~
 ALWAYS
   INCLUDE ~cbprtest/hg_functions.tpa~
+  INCLUDE ~cbprtest/race_functions.tpa~
   INCLUDE ~cbprtest/cd_add_soundset.tph~
 END
 BEGIN ~test~ DESIGNATED 0
@@ -158,6 +163,29 @@ def read_bam(data):
     return frames, cycles, lookup, data[po:po + 1024]
 
 
+# EEex as the race component checks for it: its M_ file, the hook functions in its Lua files, the
+# pattern folder and the trigger the world scripts use. Only the lines the installer looks at.
+EEEX_LUA = {
+    "EEex_scripts/EEex_Assembly_x86-64.lua": "function EEex_HookShimFunctionMaintainOriginal(address, restoreSize, originalLabel, assembly)",
+    "EEex_scripts/EEex_Assembly.lua": "function EEex_LabelDefault(label, default)",
+    "EEex_scripts/EEex_GameState.lua": "function EEex_GameState_AddInitializedListener(listener)",
+    "EEex_scripts/EEex_Menu.lua": "function EEex_Menu_AddAfterMainFileLoadedListener(listener)",
+    "EEex_scripts/EEex_Resource.lua": "function EEex_Resource_Load2DA(resref)",
+}
+EEEX_TRIGGERS = ["0x400F Global(S:Name*,S:Area*,I:Value*)", "0x410E EEex_LuaTrigger(S:Chunk*)"]
+
+
+def eeex_files(trigger=True, functions=True):
+    """Files of a fake EEex install: {path under the game folder: bytes}."""
+    out = {"override/M___EEex.lua": b"if not EEex_Active then error('EEex not active') end\r\n",
+           "EEex_scripts/extra_pattern_dbs/v2.7.3.0.db": b"[Some-Label]\r\nPattern=90\r\n"}
+    if functions:
+        out.update({k: (v + "\r\nend\r\n").encode("ascii") for k, v in EEEX_LUA.items()})
+    lines = EEEX_TRIGGERS if trigger else EEEX_TRIGGERS[:1]
+    out["override/TRIGGER.IDS"] = ("IDS V1.0\r\n" + "\r\n".join(lines) + "\r\n").encode("ascii")
+    return out
+
+
 def write_key_bif(root, resources):
     name = b"data/fixture.bif\0"
     data_offset = 20 + 16 * len(resources)
@@ -180,7 +208,7 @@ class FakeGame:
     biff/override: {"NAME.EXT": bytes}."""
 
     def __init__(self, root, weidu, tp2_body, tlk=None, biff=None, override=None, sounds_folder=True,
-                 game="bg2ee"):
+                 game="bg2ee", files=None):
         self.root, self.weidu = Path(root), weidu
         shutil.rmtree(self.root, ignore_errors=True)
         (self.root / "override").mkdir(parents=True)
@@ -190,7 +218,9 @@ class FakeGame:
             (self.root / "lang/en_us/sounds").mkdir()
         (self.root / "cbprtest").mkdir()
         shutil.copy(LIB, self.root / "cbprtest/hg_functions.tpa")
+        shutil.copy(RACE_LIB, self.root / "cbprtest/race_functions.tpa")
         shutil.copy(TPH, self.root / "cbprtest/cd_add_soundset.tph")
+        shutil.copytree(RACE_DIR, self.root / "chriz-bg-playable-races/race")
         (self.root / "cbprtest/setup-cbprtest.tp2").write_text(TP2_HEAD + tp2_body, encoding="ascii")
         if game == "eet":
             (self.root / "override/eet.flag").write_bytes(b"EET")
@@ -201,6 +231,9 @@ class FakeGame:
         write_key_bif(self.root, resources)
         for name, data in (override or {}).items():
             (self.root / "override" / name).write_bytes(data)
+        for rel, data in (files or {}).items():
+            (self.root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / rel).write_bytes(data)
 
     def run(self, action="--force-install-list"):
         out = subprocess.run([self.weidu, "cbprtest/setup-cbprtest.tp2", "--no-auto-tp2", "--noautoupdate",
@@ -228,12 +261,13 @@ class FakeGame:
                 for p in (self.root / rel).rglob("*") if p.is_file()}
 
     def tree(self):
-        """Hashes of every game file apart from the test mod, WeiDU's logs and dialog.tlk
-        (WeiDU keeps appended strings on uninstall)."""
+        """Hashes of every game file apart from the test mod (with the race hook's source files),
+        WeiDU's logs and dialog.tlk (WeiDU keeps appended strings on uninstall)."""
         out = {}
         for p in self.root.rglob("*"):
             rel = p.relative_to(self.root).as_posix().lower()
-            if p.is_file() and not (rel.startswith(("cbprtest/", "weidu")) or rel.endswith("dialog.tlk")):
+            if p.is_file() and not (rel.startswith(("cbprtest/", "weidu", "chriz-bg-playable-races/"))
+                                    or rel.endswith("dialog.tlk")):
                 out[rel] = hashlib.sha256(p.read_bytes()).hexdigest()
         return out
 

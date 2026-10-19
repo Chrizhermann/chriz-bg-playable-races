@@ -1,33 +1,34 @@
-@1 = ~Character creation with half-orc rules~
 @2 = ~This game has no hobgoblin animation (8100.ini / MHOB*.BAM); nothing to build from.~
 @3 = ~No free creature animation slot was found next to the hobgoblin slot.~
 @4 = ~RACE.IDS has no HOBGOBLIN entry.~
-@10 = ~Hobgoblin~
-@11 = ~HOBGOBLINS: Hobgoblins are the larger and sterner cousins of goblins. They live by rank and discipline, march in war bands under a hard chain of command, and judge everyone, themselves included, by strength and skill at arms. Most folk know them as raiders and sellswords and meet them with drawn steel, so a hobgoblin who travels among them earns trust slowly, if at all.
-
-Hobgoblins have the following traits:
-• Infravision.
-• The classes, ability score adjustments and limits, and thief skill bonuses of a half-orc.
-
-Character creation shows a half-orc. The character becomes a hobgoblin, in looks and race, as soon as the game begins. For a hobgoblin's voice, choose Hobgoblin among the voices.~
-@12 = ~hobgoblin~
-@20 = ~Become a Hobgoblin~
 @5 = ~SPLSTATE.IDS has no free spell state (0-255) for the hobgoblin PC marker.~
-@21 = ~Turns you into a hobgoblin for good: you take the hobgoblin's look and race. Your own race's traits give way to the hobgoblin's: infravision and the thief skill bonuses of a half-orc. Like other non-humans, a hobgoblin cannot dual-class. This ability can be used once.~
-@22 = ~Turns you into a hobgoblin for good: you take the hobgoblin's look and race. Your own race's traits give way to the hobgoblin's: infravision and the thief skill bonuses of a human. Like other non-humans, a hobgoblin cannot dual-class. This ability can be used once.~
 @6 = ~No free resource names (HGP1-HGP9) for the hobgoblin's further weapon bodies.~
 @7 = ~The game's hobgoblin sprite is not the one the weapon art was drawn for (another mod may have replaced it), so every melee weapon shows the hobgoblin's sword.~
-@8 = ~UI.MENU has no race selection to route (a UI mod may have replaced it), so character creation does not offer the hobgoblin. Protagonists get the one-use ability "Become a Hobgoblin" instead.~
 @9 = ~Hobgoblin protagonist (prototype)~
-@13 = ~Gorion told you little of where you came from: only that he found you, a squalling hobgoblin whelp, among the burned tents of a war band on the Coast Way, and that he could not bring himself to leave you there. He carried you back to Candlekeep and raised you as his ward. The monks never quite grew used to you. Visitors stared, apprentices whispered, and more than one scholar locked his books away when you passed. Yet Gorion taught you letters, patience and a measure of restraint, and he always said that what you are matters less than what you choose to do.~
-@15 = ~HOBGOBLINS: Hobgoblins are the larger and sterner cousins of goblins. They live by rank and discipline, march in war bands under a hard chain of command, and judge everyone, themselves included, by strength and skill at arms. Most folk know them as raiders and sellswords and meet them with drawn steel, so a hobgoblin who travels among them earns trust slowly, if at all.
+@10 = ~Hobgoblin~
+@11 = ~HOBGOBLINS: Hobgoblins are the larger and sterner cousins of goblins. They live by rank and discipline, march in war bands under a hard chain of command, and judge everyone, themselves included, by strength and skill at arms. Most folk know them as raiders and sellswords and meet them with drawn steel, so a hobgoblin who travels among them earns trust slowly, if at all. Of all peoples, hobgoblins hate elves the most.
 
 Hobgoblins have the following traits:
+• +1 Constitution, -1 Wisdom, -1 Charisma.
+• Constitution of at least 12, and up to 19. Strength and Dexterity of at least 6.
 • Infravision.
-• The classes, ability score adjustments and limits, and thief skill bonuses of a human.
-• Unlike humans, hobgoblins cannot dual-class.
+• +1 to hit against elves.
+• Thief skills: +5% Open Locks, +5% Find Traps, +10% Move Silently, +5% Hide in Shadows.
+• The classes and kits of a half-orc.
+• Hobgoblins can dual-class.
 
-Character creation shows a human. The character becomes a hobgoblin, in looks and race, as soon as the game begins. For a hobgoblin's voice, choose Hobgoblin among the voices.~
-@16 = ~Character creation with human rules~
-@17 = ~Every race table has a race 111 row of another mod already, so character creation does not offer this mod's hobgoblin. Protagonists get the one-use ability "Become a Hobgoblin" instead.~
+For a hobgoblin's voice, choose Hobgoblin among the voices.~
+@12 = ~hobgoblin~
+@13 = ~Gorion told you little of where you came from: only that he found you, a squalling hobgoblin whelp, among the burned tents of a war band on the Coast Way, and that he could not bring himself to leave you there. He carried you back to Candlekeep and raised you as his ward. The monks never quite grew used to you. Visitors stared, apprentices whispered, and more than one scholar locked his books away when you passed. Yet Gorion taught you letters, patience and a measure of restraint, and he always said that what you are matters less than what you choose to do.~
+@17 = ~A race table of character creation (RACETEXT.2DA, or a campaign's) has a row for race %race_hob% or for HOBGOBLIN already, or no ID column: another mod offers such a race there. Nothing was installed.~
+@20 = ~Become a Hobgoblin~
+@21 = ~Turns you into a hobgoblin for good: you take the hobgoblin's look and race, with the race's traits (infravision, its thief skill bonuses, +1 to hit against elves). Your ability scores and class stay as they are. This ability can be used once.~
 @23 = ~The mod's weapon art (chriz-bg-playable-races/hobgoblin/weapons) is missing. Unpack the whole mod again.~
+@24 = ~The hobgoblin is a race of its own through EEex, which this game lacks. Install EEex (v1.2.0 or newer) first.~
+@25 = ~This game's EEex lacks something the hobgoblin race needs (the pattern folder EEex_scripts/extra_pattern_dbs, a hook function, or the script trigger EEex_LuaTrigger). Install EEex v1.2.0 or newer.~
+@26 = ~This game's executable (Baldur.exe) does not have the engine code the race hook redirects exactly once (found %hg_code_count% time(s), check %hg_code_error%). The hobgoblin race supports BG:EE, SoD, BG2:EE and EET 2.7.3.0. Nothing was installed.~
+@27 = ~RACE.IDS gives HOBGOBLIN the number %race_hob%, which the race hook cannot give a label of its own (only 8-255 can, and 153 not). Nothing was installed.~
+@28 = ~%hg_table%.2DA has a HOBGOBLIN entry already: another mod made the hobgoblin a race of its own. Nothing was installed.~
+@29 = ~%hg_table%.2DA lacks%hg_missing%, which the hobgoblin's ability scores need: another mod changed its layout. Nothing was installed.~
+@30 = ~%hg_table%.2DA lacks%hg_missing%, so the hobgoblin goes without that part of its rules.~
+@32 = ~CBPRRACE.2DA, the race list of this mod's EEex hook, could not take the hobgoblin (check %hg_register%): another race has its label or number there, or the table has no ID column. Nothing was installed.~

@@ -1,0 +1,554 @@
+// Races of their own (needs EEex): the race tables the engine reads under a race's label, the
+// EEex hook that gives a new race its label, and the check that the game's executable has the
+// engine code the hook redirects. Nothing here is specific to one race; docs/new-race-with-eeex.md
+// explains the method.
+
+// ---------------------------------------------------------------- 2DA tables, line by line
+// WeiDU's own 2DA commands count only the rows with at least as many entries as they are told,
+// so a short row is invisible to them. The functions below see every line.
+
+// The lines of the text in the buffer: line i (0 = the first) starts at $starts(i), and its last
+// word ends at $ends(i) (trailing spaces, tabs and CR left out). `nlines`: how many lines (a last
+// line without a line end counts). `crlf`: whether the first line ends with CR LF.
+DEFINE_PATCH_FUNCTION cbpr_text_lines
+  RET nlines
+      crlf
+  RET_ARRAY starts
+            ends
+BEGIN
+  CLEAR_ARRAY starts
+  CLEAR_ARRAY ends
+  SET nlines = 0
+  SET crlf = 0
+  SET s = 0
+  FOR (p = 0; p < BUFFER_LENGTH; ++p) BEGIN
+    READ_BYTE p c
+    PATCH_IF (c = 10) OR (p = BUFFER_LENGTH - 1) BEGIN
+      SET e = (c = 10) ? p : (p + 1)
+      PATCH_IF (c = 10) AND (nlines = 0) AND (p > 0) BEGIN
+        READ_BYTE (p - 1) cr
+        SET crlf = (cr = 13)
+      END
+      SET trim = 1
+      WHILE trim AND (e > s) BEGIN
+        READ_BYTE (e - 1) t
+        PATCH_IF (t = 13) OR (t = 32) OR (t = 9) BEGIN
+          SET e -= 1
+        END ELSE BEGIN
+          SET trim = 0
+        END
+      END
+      SET $starts(~%nlines%~) = s
+      SET $ends(~%nlines%~) = e
+      SET nlines += 1
+      SET s = p + 1
+    END
+  END
+END
+
+// Word `k` (0 = the first) between the buffer offsets `from` and `to`, words being separated by
+// spaces and tabs: `word` (empty when there are fewer words) and `wend`, the offset after it
+// (`to` when there are fewer words). `words`: how many words there are.
+DEFINE_PATCH_FUNCTION cbpr_line_word
+  INT_VAR from = 0
+          to = 0
+          k = 0
+  RET word
+      wend
+      words
+BEGIN
+  SPRINT word ~~
+  SET wend = to
+  SET words = 0
+  SET inword = 0
+  SET ws = 0
+  FOR (p = from; p <= to; ++p) BEGIN
+    SET c = 32
+    PATCH_IF (p < to) BEGIN
+      READ_BYTE p c
+    END
+    PATCH_IF (c = 32) OR (c = 9) OR (c = 13) BEGIN
+      PATCH_IF inword BEGIN
+        PATCH_IF (words = k + 1) BEGIN
+          READ_ASCII ws word (p - ws)
+          SET wend = p
+        END
+        SET inword = 0
+      END
+    END ELSE PATCH_IF NOT inword BEGIN
+      SET inword = 1
+      SET ws = p
+      SET words += 1
+    END
+  END
+END
+
+// "NAME=entry NAME=entry ..." as `map` (NAME in upper case => entry) and `keys` (the names, upper
+// case, each with a space in front).
+DEFINE_PATCH_FUNCTION cbpr_parse_values
+  STR_VAR values = ~~
+  RET keys
+  RET_ARRAY map
+BEGIN
+  CLEAR_ARRAY map
+  SPRINT keys ~~
+  INNER_PATCH ~%values%~ BEGIN
+    REPLACE_EVALUATE ~\([^ =%TAB%]+\)=\([^ %TAB%]+\)~ BEGIN
+      SPRINT key ~%MATCH1%~
+      TO_UPPER key
+      SPRINT $map(~%key%~) ~%MATCH2%~
+      SPRINT keys ~%keys% %key%~
+    END ~%MATCH0%~
+  END
+END
+
+// The entry of the first row `row` (any letter case) in the column `column` of the 2DA table in
+// the buffer, the table's default value where the row or the column is missing or the row has no
+// entry there. `found`: whether the row and the column are there.
+DEFINE_PATCH_FUNCTION cbpr_2da_entry
+  STR_VAR row = ~~
+          column = ~~
+  RET value
+      found
+BEGIN
+  SPRINT value ~~
+  SET found = 0
+  LPF cbpr_text_lines RET nlines RET_ARRAY cbpre_s = starts cbpre_e = ends END
+  PATCH_IF (nlines >= 3) BEGIN
+    LPF cbpr_line_word INT_VAR from = $cbpre_s(~1~) to = $cbpre_e(~1~) RET value = word END
+    SET hs = $cbpre_s(~2~)
+    SET he = $cbpre_e(~2~)
+    LPF cbpr_line_word INT_VAR from = hs to = he RET ncols = words END
+    SET col = 0 - 1
+    FOR (c = 0; (c < ncols) AND (col < 0); ++c) BEGIN
+      LPF cbpr_line_word INT_VAR from = hs to = he k = c RET head = word END
+      PATCH_IF (~%head%~ STRING_EQUAL_CASE ~%column%~) BEGIN
+        SET col = c
+      END
+    END
+    SET line = 0 - 1
+    FOR (i = 3; (i < nlines) AND (line < 0); ++i) BEGIN
+      LPF cbpr_line_word INT_VAR from = $cbpre_s(~%i%~) to = $cbpre_e(~%i%~) RET label = word END
+      PATCH_IF (~%label%~ STRING_EQUAL_CASE ~%row%~) BEGIN
+        SET line = i
+      END
+    END
+    PATCH_IF (col >= 0) AND (line >= 0) BEGIN
+      SET found = 1
+      LPF cbpr_line_word INT_VAR from = $cbpre_s(~%line%~) to = $cbpre_e(~%line%~) k = col + 1
+        RET entry = word n = words END
+      PATCH_IF (col + 1 < n) BEGIN
+        SPRINT value ~%entry%~
+      END
+    END
+  END
+END
+
+// A row `label` for a new race at the end of the 2DA table in the buffer (races as rows, as in
+// ABRACEAD.2DA). Each column gets the entry `values` names ("COLUMN=entry ...", column names in
+// any letter case), else the entry of the first row `base` there, else the table's default value.
+// `added`: whether the row was added; not when the table has a row `label` already (`taken` 1) or
+// no header line. `missing`: the columns `values` names that the table lacks, each with a space in
+// front.
+DEFINE_PATCH_FUNCTION cbpr_add_race_row
+  STR_VAR label = ~~
+          base = ~~
+          values = ~~
+  RET added
+      taken
+      missing
+BEGIN
+  SET added = 0
+  SET taken = 0
+  SPRINT missing ~~
+  LPF cbpr_parse_values STR_VAR values RET keys RET_ARRAY cbprr_v = map END
+  LPF cbpr_text_lines RET nlines crlf RET_ARRAY cbprr_s = starts cbprr_e = ends END
+  PATCH_IF (nlines >= 3) BEGIN
+    LPF cbpr_line_word INT_VAR from = $cbprr_s(~1~) to = $cbprr_e(~1~) RET default = word END
+    SET hs = $cbprr_s(~2~)
+    SET he = $cbprr_e(~2~)
+    LPF cbpr_line_word INT_VAR from = hs to = he RET ncols = words END
+    SET brow = 0 - 1
+    FOR (i = 3; i < nlines; ++i) BEGIN
+      LPF cbpr_line_word INT_VAR from = $cbprr_s(~%i%~) to = $cbprr_e(~%i%~) RET row = word END
+      PATCH_IF (~%row%~ STRING_EQUAL_CASE ~%label%~) BEGIN
+        SET taken = 1
+      END
+      PATCH_IF (brow < 0) AND (~%row%~ STRING_EQUAL_CASE ~%base%~) BEGIN
+        SET brow = i
+      END
+    END
+    PATCH_IF (NOT taken) AND (ncols > 0) BEGIN
+      SPRINT text ~%label%~
+      FOR (c = 0; c < ncols; ++c) BEGIN
+        LPF cbpr_line_word INT_VAR from = hs to = he k = c RET head = word END
+        TO_UPPER head
+        PATCH_IF (VARIABLE_IS_SET EVAL ~cbprr_v_%head%~) BEGIN
+          SPRINT v $cbprr_v(~%head%~)
+          SET $cbprr_used(~%head%~) = 1
+        END ELSE BEGIN
+          SPRINT v ~%default%~
+          PATCH_IF (brow >= 0) BEGIN
+            LPF cbpr_line_word INT_VAR from = $cbprr_s(~%brow%~) to = $cbprr_e(~%brow%~) k = c + 1
+              RET bv = word bn = words END
+            PATCH_IF (c + 1 < bn) BEGIN
+              SPRINT v ~%bv%~
+            END
+          END
+        END
+        SPRINT text ~%text%  %v%~
+      END
+      PATCH_IF crlf BEGIN
+        SPRINT eol ~%WNL%~
+      END ELSE BEGIN
+        SPRINT eol ~%LNL%~
+      END
+      SET at = BUFFER_LENGTH
+      READ_BYTE (at - 1) last
+      PATCH_IF (last != 10) BEGIN
+        SPRINT text ~%eol%%text%~
+      END
+      SPRINT text ~%text%%eol%~
+      INSERT_BYTES at (STRING_LENGTH ~%text%~)
+      WRITE_ASCIIE at ~%text%~
+      SET added = 1
+      INNER_PATCH ~%keys%~ BEGIN
+        REPLACE_EVALUATE ~[^ ]+~ BEGIN
+          PATCH_IF NOT VARIABLE_IS_SET EVAL ~cbprr_used_%MATCH0%~ BEGIN
+            SPRINT missing ~%missing% %MATCH0%~
+          END
+        END ~%MATCH0%~
+      END
+    END
+  END
+END
+
+// A column `label` for a new race in the 2DA table in the buffer (races as columns, as in
+// CLSRCREQ.2DA). Each row gets the entry `values` names ("ROW=entry ...", row names in any letter
+// case), else its entry in the first column `base`, else the table's default value. A row shorter
+// than the header first gets the default value for each entry it lacks, so the new entry lands in
+// the new column; a row longer than the header gets it right behind its last column. `added`:
+// whether the column was added; not when the table has a column `label` already (`taken` 1) or no
+// header line. `missing`: the rows `values` names that the table lacks, each with a space in front.
+DEFINE_PATCH_FUNCTION cbpr_add_race_column
+  STR_VAR label = ~~
+          base = ~~
+          values = ~~
+  RET added
+      taken
+      missing
+BEGIN
+  SET added = 0
+  SET taken = 0
+  SPRINT missing ~~
+  LPF cbpr_parse_values STR_VAR values RET keys RET_ARRAY cbprc_v = map END
+  LPF cbpr_text_lines RET nlines RET_ARRAY cbprc_s = starts cbprc_e = ends END
+  PATCH_IF (nlines >= 3) BEGIN
+    LPF cbpr_line_word INT_VAR from = $cbprc_s(~1~) to = $cbprc_e(~1~) RET default = word END
+    SET hs = $cbprc_s(~2~)
+    SET he = $cbprc_e(~2~)
+    LPF cbpr_line_word INT_VAR from = hs to = he RET ncols = words END
+    SET bcol = 0 - 1
+    FOR (c = 0; c < ncols; ++c) BEGIN
+      LPF cbpr_line_word INT_VAR from = hs to = he k = c RET head = word END
+      PATCH_IF (~%head%~ STRING_EQUAL_CASE ~%label%~) BEGIN
+        SET taken = 1
+      END
+      PATCH_IF (bcol < 0) AND (~%head%~ STRING_EQUAL_CASE ~%base%~) BEGIN
+        SET bcol = c
+      END
+    END
+    PATCH_IF (NOT taken) AND (ncols > 0) BEGIN
+      // From the last line up, so the offsets of the lines above stay valid.
+      FOR (i = nlines - 1; i >= 3; i = i - 1) BEGIN
+        SET s = $cbprc_s(~%i%~)
+        SET e = $cbprc_e(~%i%~)
+        LPF cbpr_line_word INT_VAR from = s to = e RET row = word n = words END
+        PATCH_IF (n > 0) BEGIN
+          TO_UPPER row
+          PATCH_IF (VARIABLE_IS_SET EVAL ~cbprc_v_%row%~) BEGIN
+            SPRINT v $cbprc_v(~%row%~)
+            SET $cbprc_used(~%row%~) = 1
+          END ELSE PATCH_IF (bcol >= 0) AND (bcol + 1 < n) BEGIN
+            LPF cbpr_line_word INT_VAR from = s to = e k = bcol + 1 RET v = word END
+          END ELSE BEGIN
+            SPRINT v ~%default%~
+          END
+          PATCH_IF (n > ncols + 1) BEGIN
+            LPF cbpr_line_word INT_VAR from = s to = e k = ncols RET at = wend END
+            SPRINT ins ~  %v%~
+          END ELSE BEGIN
+            SET at = e
+            SPRINT ins ~~
+            FOR (m = n; m < ncols + 1; ++m) BEGIN
+              SPRINT ins ~%ins%  %default%~
+            END
+            SPRINT ins ~%ins%  %v%~
+          END
+          INSERT_BYTES at (STRING_LENGTH ~%ins%~)
+          WRITE_ASCIIE at ~%ins%~
+        END
+      END
+      SPRINT ins ~  %label%~
+      INSERT_BYTES he (STRING_LENGTH ~%ins%~)
+      WRITE_ASCIIE he ~%ins%~
+      SET added = 1
+      INNER_PATCH ~%keys%~ BEGIN
+        REPLACE_EVALUATE ~[^ ]+~ BEGIN
+          PATCH_IF NOT VARIABLE_IS_SET EVAL ~cbprc_used_%MATCH0%~ BEGIN
+            SPRINT missing ~%missing% %MATCH0%~
+          END
+        END ~%MATCH0%~
+      END
+    END
+  END
+END
+
+// The entry of race `label` in the race table `table`, if the game has it: a row (`columns` 0, races
+// as rows) or a column (`columns` 1, races as columns), from `base` and `values` (cbpr_add_race_row,
+// cbpr_add_race_column). `result`: 0 added, 1 the game has no such table, 2 the table has an entry
+// `label` already, 3 the table has no header line. `missing`: the names in `values` the table lacks,
+// each with a space in front.
+DEFINE_ACTION_FUNCTION cbpr_race_table
+  INT_VAR columns = 0
+  STR_VAR table = ~~
+          label = ~~
+          base = ~~
+          values = ~~
+  RET result
+      missing
+BEGIN
+  OUTER_SET result = 1
+  OUTER_SPRINT missing ~~
+  ACTION_IF FILE_EXISTS_IN_GAME ~%table%.2da~ BEGIN
+    COPY_EXISTING ~%table%.2da~ ~override~
+      PATCH_IF columns BEGIN
+        LPF cbpr_add_race_column STR_VAR label base values RET added taken missing END
+      END ELSE BEGIN
+        LPF cbpr_add_race_row STR_VAR label base values RET added taken missing END
+      END
+      SET result = added ? 0 : (taken ? 2 : 3)
+    BUT_ONLY
+  END
+END
+
+// ---------------------------------------------------------------- engine code
+// How often `pattern` occurs in the executable sections of the 64-bit PE file `exe`. The pattern
+// is written as in EEex's pattern files: hex bytes, ?? for any byte. `offset`: the file offset of
+// the last occurrence, -1 without one. `error`: 0, or why nothing was searched: 1 no file `exe`,
+// 2 not a 64-bit PE file, 3 the pattern is not hex bytes and ??, 4 the pattern has fewer than
+// 8 fixed bytes in a row (the search needs such a stretch; bytes 0, % and ~ do not count).
+DEFINE_ACTION_FUNCTION cbpr_code_pattern_count
+  STR_VAR exe = ~~
+          pattern = ~~
+  RET count
+      offset
+      error
+BEGIN
+  OUTER_SET count = 0
+  OUTER_SET offset = 0 - 1
+  OUTER_SET error = 0
+  ACTION_CLEAR_ARRAY cbprx_b
+  OUTER_SET cbprx_n = 0
+  OUTER_INNER_PATCH ~%pattern%~ BEGIN
+    PATCH_IF (BUFFER_LENGTH = 0) OR ((BUFFER_LENGTH MODULO 2) != 0) BEGIN
+      SET error = 3
+    END
+    FOR (i = 0; (error = 0) AND (i + 1 < BUFFER_LENGTH); i += 2) BEGIN
+      READ_BYTE i hi
+      READ_BYTE (i + 1) lo
+      PATCH_IF (hi = 63) AND (lo = 63) BEGIN
+        SET $cbprx_b(~%cbprx_n%~) = (0 - 1)
+      END ELSE BEGIN
+        SET vh = ((hi >= 48) AND (hi <= 57)) ? (hi - 48) : (((hi >= 65) AND (hi <= 70)) ? (hi - 55)
+               : (((hi >= 97) AND (hi <= 102)) ? (hi - 87) : (0 - 1)))
+        SET vl = ((lo >= 48) AND (lo <= 57)) ? (lo - 48) : (((lo >= 65) AND (lo <= 70)) ? (lo - 55)
+               : (((lo >= 97) AND (lo <= 102)) ? (lo - 87) : (0 - 1)))
+        PATCH_IF (vh < 0) OR (vl < 0) BEGIN
+          SET error = 3
+        END ELSE BEGIN
+          SET $cbprx_b(~%cbprx_n%~) = vh * 16 + vl
+        END
+      END
+      SET cbprx_n += 1
+    END
+  END
+  // The longest stretch of fixed bytes the search can use.
+  OUTER_SET cbprx_rs = 0
+  OUTER_SET cbprx_rl = 0
+  ACTION_IF (error = 0) BEGIN
+    OUTER_SET start = 0
+    OUTER_FOR (i = 0; i <= cbprx_n; ++i) BEGIN
+      OUTER_SET usable = 0
+      ACTION_IF (i < cbprx_n) BEGIN
+        OUTER_SET v = $cbprx_b(~%i%~)
+        OUTER_SET usable = (v > 0) AND (v != 0x25) AND (v != 0x7e)
+      END
+      ACTION_IF NOT usable BEGIN
+        ACTION_IF (i - start > cbprx_rl) BEGIN
+          OUTER_SET cbprx_rs = start
+          OUTER_SET cbprx_rl = i - start
+        END
+        OUTER_SET start = i + 1
+      END
+    END
+    ACTION_IF (cbprx_rl < 8) BEGIN
+      OUTER_SET error = 4
+    END
+  END
+  ACTION_IF (error = 0) AND NOT FILE_EXISTS ~%exe%~ BEGIN
+    OUTER_SET error = 1
+  END
+  ACTION_IF (error = 0) BEGIN
+    OUTER_PATCH_SAVE cbprx_sig ~~ BEGIN
+      INSERT_BYTES 0 cbprx_rl
+      FOR (j = 0; j < cbprx_rl; ++j) BEGIN
+        SET idx = cbprx_rs + j
+        WRITE_BYTE j $cbprx_b(~%idx%~)
+      END
+    END
+    COPY - ~%exe%~ ~override~
+      // A 64-bit PE file with its section table inside the file.
+      SET pe = 0 - 1
+      PATCH_IF (BUFFER_LENGTH >= 0x40) BEGIN
+        READ_SHORT 0 mz
+        READ_LONG 0x3c pe
+        PATCH_IF (mz != 0x5a4d) OR (pe < 0x40) OR (pe > BUFFER_LENGTH - 26) BEGIN
+          SET pe = 0 - 1
+        END
+      END
+      SET nsec = 0
+      SET optsize = 0
+      PATCH_IF (pe >= 0) BEGIN
+        READ_LONG pe sig
+        READ_SHORT (pe + 4) machine
+        READ_SHORT (pe + 6) nsec
+        READ_SHORT (pe + 20) optsize
+        READ_SHORT (pe + 24) optmagic
+        PATCH_IF (sig != 0x4550) OR (machine != 0x8664) OR (optmagic != 0x20b) OR (nsec < 1)
+              OR (pe + 24 + optsize + nsec * 40 > BUFFER_LENGTH) BEGIN
+          SET pe = 0 - 1
+        END
+      END
+      PATCH_IF (pe < 0) BEGIN
+        SET error = 2
+      END ELSE BEGIN
+        SET m = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%cbprx_sig%~)
+        WHILE (m >= 0) BEGIN
+          SET at = m - cbprx_rs
+          SET ok = (at >= 0) AND (at + cbprx_n <= BUFFER_LENGTH)
+          FOR (j = 0; ok AND (j < cbprx_n); ++j) BEGIN
+            SET want = $cbprx_b(~%j%~)
+            PATCH_IF (want >= 0) BEGIN
+              READ_BYTE (at + j) got
+              SET ok = (got = want)
+            END
+          END
+          SET exec = 0
+          FOR (k = 0; ok AND (k < nsec); ++k) BEGIN
+            SET sh = pe + 24 + optsize + k * 40
+            READ_LONG (sh + 16) rawsize
+            READ_LONG (sh + 20) rawstart
+            READ_LONG (sh + 36) flags
+            PATCH_IF ((flags BAND 0x20000000) != 0) AND (at >= rawstart)
+                  AND (at + cbprx_n <= rawstart + rawsize) BEGIN
+              SET exec = 1
+            END
+          END
+          PATCH_IF ok AND exec BEGIN
+            SET count += 1
+            SET offset = at
+          END
+          SET m = INDEX_BUFFER (CASE_SENSITIVE EXACT_MATCH ~%cbprx_sig%~ (m + 1))
+        END
+      END
+  END
+END
+
+// ---------------------------------------------------------------- the race hook
+// The label hook (race/M_CBPRRC.lua, installed in override) makes CRuleTables::GetRaceString answer
+// each race its list CBPRRACE.2DA names with the label the list gives it, so the engine reads that
+// race's entries in its race tables. EEex's loader finds the function at game start from the
+// pattern in race/CBPRRACE.db (installed in EEex_scripts/extra_pattern_dbs).
+
+// The hook's files are this mod's folder race (CBPRRACE.2DA, CBPRRACE.db, M_CBPRRC.lua). Another
+// mod that adds a race ships them unchanged in a folder of its own and names it as `folder`: every
+// race then goes into the one list CBPRRACE.2DA, and one hook labels them all (a second hook on the
+// same function would find it redirected and stay off).
+
+// The pattern the hook's loader file gives for CRuleTables::GetRaceString (hex bytes, ?? for any).
+DEFINE_ACTION_FUNCTION cbpr_race_hook_pattern
+  STR_VAR folder = ~chriz-bg-playable-races/race~
+  RET pattern
+BEGIN
+  OUTER_SPRINT pattern ~~
+  COPY - ~%folder%/CBPRRACE.db~ ~override~
+    REPLACE_EVALUATE CASE_SENSITIVE ~^Pattern=\([0-9A-Fa-f?]+\)~ BEGIN
+      SPRINT pattern ~%MATCH1%~
+    END ~%MATCH0%~
+END
+
+// Race `id` gets the label `label` through the hook: a row in CBPRRACE.2DA with the race's
+// biography `bio` (a string reference, -1 for none; EET's character creation takes the race part of
+// the biography from a Lua table, bioRaceData, and the hook adds the race there), and the hook's
+// files from `folder`. `error`: 0 when done, else nothing was changed and it tells why: 1 the race cannot have a
+// label of its own (only races 8-255 can, and 153 not: the engine gives it the elf's), 2 the label
+// is not a word of capital letters, digits and _, 3 CBPRRACE.2DA gives the race or the label to
+// another race already, 4 CBPRRACE.2DA has no ID column.
+DEFINE_ACTION_FUNCTION cbpr_register_race
+  INT_VAR id = 0
+          bio = 0 - 1
+  STR_VAR label = ~~
+          folder = ~chriz-bg-playable-races/race~
+  RET error
+BEGIN
+  OUTER_SET error = 0
+  // WeiDU's regexps ignore letter case; the hook (Lua) takes capital letters only.
+  OUTER_SPRINT cbprg_upper ~%label%~
+  ACTION_TO_UPPER cbprg_upper
+  ACTION_IF (id < 8) OR (id > 255) OR (id = 153) BEGIN
+    OUTER_SET error = 1
+  END ELSE ACTION_IF (~%label%~ STRING_MATCHES_REGEXP ~^[A-Z_][A-Z0-9_]*$~)
+                     OR NOT (~%label%~ STRING_EQUAL ~%cbprg_upper%~) BEGIN
+    OUTER_SET error = 2
+  END ELSE ACTION_IF FILE_EXISTS_IN_GAME ~cbprrace.2da~ BEGIN
+    COPY_EXISTING - ~cbprrace.2da~ ~override~
+      LPF cbpr_text_lines RET nlines RET_ARRAY cbprg_s = starts cbprg_e = ends END
+      SET col = 0 - 1
+      PATCH_IF (nlines >= 3) BEGIN
+        LPF cbpr_line_word INT_VAR from = $cbprg_s(~2~) to = $cbprg_e(~2~) RET ncols = words END
+        FOR (c = 0; c < ncols; ++c) BEGIN
+          LPF cbpr_line_word INT_VAR from = $cbprg_s(~2~) to = $cbprg_e(~2~) k = c RET head = word END
+          PATCH_IF (col < 0) AND (~%head%~ STRING_EQUAL_CASE ~ID~) BEGIN
+            SET col = c
+          END
+        END
+      END
+      PATCH_IF (col < 0) BEGIN
+        SET error = 4
+      END
+      FOR (i = 3; (error = 0) AND (i < nlines); ++i) BEGIN
+        LPF cbpr_line_word INT_VAR from = $cbprg_s(~%i%~) to = $cbprg_e(~%i%~) RET row = word END
+        LPF cbpr_line_word INT_VAR from = $cbprg_s(~%i%~) to = $cbprg_e(~%i%~) k = col + 1 RET rid = word END
+        SET same_label = (~%row%~ STRING_EQUAL_CASE ~%label%~)
+        SET same_id = 0
+        PATCH_IF (IS_AN_INT ~%rid%~) BEGIN
+          SET same_id = (rid = id)
+        END
+        PATCH_IF (same_label OR same_id) AND NOT (same_label AND same_id) BEGIN
+          SET error = 3
+        END
+      END
+  END
+  ACTION_IF (error = 0) BEGIN
+    ACTION_IF NOT FILE_EXISTS_IN_GAME ~cbprrace.2da~ BEGIN
+      COPY ~%folder%/CBPRRACE.2DA~ ~override/CBPRRACE.2DA~
+    END
+    COPY_EXISTING ~cbprrace.2da~ ~override~
+      LPF cbpr_add_race_row STR_VAR label values = EVAL ~ID=%id% BIOGRAPHY=%bio%~ RET added END
+    BUT_ONLY
+    MKDIR ~EEex_scripts/extra_pattern_dbs~
+    COPY ~%folder%/CBPRRACE.db~ ~EEex_scripts/extra_pattern_dbs/CBPRRACE.db~
+    COPY ~%folder%/M_CBPRRC.lua~ ~override/M_CBPRRC.lua~
+  END
+END

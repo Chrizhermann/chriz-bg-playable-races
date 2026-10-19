@@ -1,0 +1,8 @@
+; Chriz BG Playable Races: CRuleTables::GetRaceString (race ID -> the label of its rows and
+; columns in the race tables), for the race hook in M_CBPRRC.lua. The pattern occurs once in the
+; Baldur.exe of BG:EE and of BG2:EE 2.7.3.0 (EET runs the latter); the installer checks the game
+; it installs into. Only the bound of the race comparison and the RIP-relative offsets are left
+; open (??).
+[CBPR-CRuleTables::GetRaceString]
+Pattern=40534883EC20410FB6C0488BDAFFC83D????????0F87????????488D15????????48980FB68402????????8B8C82????????4803CAFFE1
+NoCache=1

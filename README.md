@@ -5,34 +5,41 @@ protagonist into a creature the game already has. The installer builds the sprit
 armour colours from your installed game's own files and draws the weapons with the mod's
 own weapon art, so the mod ships no game art or audio.
 
-**Status:** lab prototype `v0.2.0-proto`, not released. It has been tested only in a
-disposable lab copy of one EET install (BG2:EE 2.7.3.0) and with the offline tests.
+**Status:** lab prototype `v0.3.0-proto`, not released. It has been tested only in a
+disposable lab copy of one EET install (BG2:EE 2.7.3.0, EEex v1.2.0) and with the offline
+tests.
 
 ## Components
 
 | Component | Label | Purpose |
 |---:|---|---|
-| 100 | `cbpr_hobgoblin_protagonist` | [Hobgoblin protagonist](docs/hobgoblin.md), half-orc rules |
-| 101 | `cbpr_hobgoblin_protagonist_human_rules` | [Hobgoblin protagonist](docs/hobgoblin.md), human rules |
+| 100 | `cbpr_hobgoblin_protagonist` | [Hobgoblin protagonist](docs/hobgoblin.md): the hobgoblin as a race of its own (needs EEex) |
 
-Install one of the two: they differ only in the rules character creation uses for the
-hobgoblin.
+### 100: Hobgoblin protagonist
 
-### 100 and 101: Hobgoblin protagonist
+- Character creation offers **Hobgoblin** as a race of its own, with its own description and,
+  in EET, its own biography. The race has its own rules, which the engine reads from its race
+  tables; an EEex hook gives the race the label those tables use
+  ([how it works](docs/new-race-with-eeex.md)).
 
-- Character creation offers **Hobgoblin** as a race, with its own description and, in EET,
-  its own biography. The engine can only create its seven standard races, so the
-  hobgoblin is made with a template race's rules: the half-orc's (100: classes, ability
-  adjustments and limits, thief skills) or the human's (101: any class). Character
-  creation shows the template race; the protagonist becomes a hobgoblin, in looks and
-  race, as soon as the game starts.
-- As a hobgoblin it keeps the template race's thief skill bonuses, in each class and kit
-  just as the game gives them to that race, and has infravision. Unlike a human, it cannot
-  dual-class.
-- A protagonist that was not created in the game's character creation (imported, or from
-  a save made before the install) gets the innate ability **Become a Hobgoblin** instead.
-  It works once and for good: hobgoblin sprite, race HOBGOBLIN with the template race's
-  thief skill bonuses and infravision, then the ability is gone.
+  | | Hobgoblin |
+  |---|---|
+  | Ability scores | +1 Constitution, -1 Wisdom, -1 Charisma |
+  | Limits | Constitution 12-19; Strength and Dexterity at least 6; Wisdom and Charisma at most 17 |
+  | Infravision | yes |
+  | Hatred of elves | +1 to hit against elves |
+  | Thief skills | the human's, with +5% Open Locks, +5% Find Traps, +10% Move Silently, +5% Hide in Shadows |
+  | Classes and kits | the half-orc's in your game (with a mod that opens all classes to all races: all of them) |
+  | Dual-class | yes |
+
+  The values follow the hobgoblin of AD&D 2nd edition's *The Complete Book of Humanoids*, with
+  Chris's changes: +1 Constitution (12-19), -1 Wisdom, better Move Silently and Hide in
+  Shadows, dual-classing. The book's Charisma limit of 14 is left out, so paladins (17),
+  bards and druids (15) stay possible. [docs/hobgoblin.md](docs/hobgoblin.md#the-rules)
+  compares them.
+- A hobgoblin looks like one: the game gives a new race the human's figure in character
+  creation, so the world scripts give every party member of race Hobgoblin the hobgoblin's
+  figure and colours as the game starts, and again after a dual-class.
 - The inventory shows the hobgoblin as the paperdoll figure.
 - A hobgoblin voice from the game's ten hobgoblin clips, each on the event it fits
   (orders and moving, battle cries, selection, hit, death, ...): choose **Hobgoblin** under
@@ -48,76 +55,70 @@ hobgoblin.
   same armour code. Without armour the protagonist's own colours return.
 - Companions and other creatures keep their looks, even with the same weapons and armour.
 
-Verified in the lab on 2026-10-17 and 2026-10-18:
+Verified in the lab (latest: 2026-10-19, runs 18-18c, on a copy of a full EET install with
+Artisan's Kitpack opening all classes to all races):
 
-- In a save made before the install, the protagonist got the ability once and the
-  companions got nothing. Using it made the protagonist a hobgoblin and removed the
-  ability.
-- Only the protagonist changed. The five companions kept their sprites at load, after
-  the transformation, with patched weapons and after saving and reloading.
-- Weapon changes worked through scripts and through the action bar.
-- All 19 test weapons (five swords, axe, dagger, club, flail, mace, morning star, hammer,
-  staff, spear, halberd, sling, two bows, a crossbow) gave the sprite their group's look,
-  with whole shafts on staff, spear and halberd.
-- Character creation listed the hobgoblin among the races, with its description and its
-  biography. A thief created as a hobgoblin started the game as one, with infravision and
-  the thief skills character creation had shown: 21/16/16/16/11/10/5 with half-orc rules,
-  21/16/11/16/11/15/5 with human rules, for the same points.
-- The thief skill bonuses counted in the same classes as the template race's own: checked
-  for thief, fighter, bard, Blade, ranger, monk and shaman.
-- At level 2 the record screen offered dual-classing to the character as a human, not as a
-  hobgoblin.
-- The record screen showed the race Hobgoblin, and the inventory the hobgoblin figure the
-  installer builds.
-- **Hobgoblin** was listed under Record > Customize > Voice. Choosing it gave the
-  protagonist the twelve lines of the voice table. Every selection and every move order
-  played a line; attack orders played a battle cry now and then, as the companions'
-  battle cries do. (Checked through subtitles: the lab runs without sound.)
-- Saving and reloading kept the sprite, the race, the voice and the marker that limits
-  the effects to the protagonist.
-- Armour already worn in an older save worked right after loading.
+- At game start the console reported the race hook active for HOBGOBLIN (111).
+- Character creation listed the hobgoblin with its description, and offered it the half-orc's
+  21 classes and the same thief kits. 3,000 ability rolls of a thief stayed within
+  Constitution 12-19, Strength 6-18 and Wisdom and Charisma 3-17.
+- A hobgoblin thief started the game as a hobgoblin, with infravision, the +1 to hit against
+  elves and the race's thief skills: 21/21/16/26/16/15/5 for 6/6/6/6/6/5/5 spent points. The
+  record screen named the race **Hobgoblin**.
+- At thief level 2 it could dual-class; as a Fighter/Thief it stayed a hobgoblin, in race and
+  looks.
+- Saving and reloading kept the race, the looks, the marker that limits the weapon and armour
+  looks to hobgoblins, and the hook.
+- Saves of v0.1 and v0.2 with a hobgoblin protagonist: after loading, the protagonist had the
+  race's rules and the hatred of elves, and v0.2's own skill effects were gone, so nothing
+  counted twice.
+- Uninstall restored every file under `override` and `EEex_scripts` byte for byte.
+- Earlier runs (v0.1, v0.2): all 19 test weapons gave the sprite their group's look; the
+  armour colours, the inventory figure and the voice worked; only hobgoblins changed, the
+  companions kept their sprites.
 
 Not done yet:
 
+- After loading a save, a hobgoblin holding a weapon other than a long sword or halberd shows
+  no weapon until the weapon is changed (since v0.1).
+- Not tested with EEex v1.3.1, BG:EE or SoD outside EET, or other game versions.
 - The voice has only the ten clips the game's hobgoblins have, so it repeats itself
   more than a full voice pack.
 
 ## Installation (testers)
 
-1. Copy `setup-chriz-bg-playable-races.tp2` and the `chriz-bg-playable-races` folder into
+1. Install [EEex](https://github.com/Bubb13/EEex) first (v1.2.0 tested).
+2. Copy `setup-chriz-bg-playable-races.tp2` and the `chriz-bg-playable-races` folder into
    the game folder.
-2. Put a current [WeiDU](https://github.com/WeiDUorg/weidu/releases) next to them, named
+3. Put a current [WeiDU](https://github.com/WeiDUorg/weidu/releases) next to them, named
    `setup-chriz-bg-playable-races.exe`.
-3. Run it and choose component 100 (half-orc rules) or 101 (human rules).
+4. Run it and choose component 100.
 
 Install it after mods that add weapons or armour, so that their items get the hobgoblin
-looks too, and after mods that replace `UI.MENU` (UI mods), so that character creation can
-offer the hobgoblin. The transformation cannot be undone in the game, so save before you
-use the ability.
+looks too, and after mods that change the half-orc's classes, kits and other race tables
+(such as a mod that opens all classes to all races), so that the hobgoblin follows them.
+
+The component stops before it changes anything when the game lacks EEex, when `Baldur.exe`
+does not have the engine code the hook redirects (it supports BG:EE, SoD, BG2:EE and EET
+2.7.3.0), when another mod already made HOBGOBLIN a race of its own, when the game's
+hobgoblin animation (`8100.ini`, `MHOB*.BAM`) is missing, and when the mod's own weapon art is
+missing (an incompletely unpacked mod).
 
 To remove it, run `setup-chriz-bg-playable-races.exe` again and choose Uninstall, before
 you install other mods on top. WeiDU puts back every file the component changed and
 deletes the ones it added (keep the `chriz-bg-playable-races` folder until then: it holds
-the backup). In a lab check on a copy of a full EET install, all game files matched their
-state before the install afterwards. Left over were WeiDU's own `.DEBUG` log, a comment in
-`WeiDU.log` and the component's strings in `dialog.tlk` (WeiDU leaves added strings in
-place).
-Saves made while the component was installed keep its changes: after an uninstall, a
-transformed protagonist stays a hobgoblin, with the plain hobgoblin sprite, no inventory
-figure, no race name and a silent voice. So back up your save folder before you try the
-component, and put it back after an uninstall.
+the backup). Left over are WeiDU's own `.DEBUG` log, a comment in `WeiDU.log` and the
+component's strings in `dialog.tlk` (WeiDU leaves added strings in place).
+Saves made while the component was installed keep its changes: after an uninstall a
+hobgoblin keeps race 111 and the plain hobgoblin sprite, but the engine then has no rules
+and no name for that race. So back up your save folder before you try the component, and
+put it back after an uninstall.
 
-To update from v0.1, uninstall it as above while its own files are still in place, then
-unpack the new version over them and install it. Then choose **Hobgoblin** again under
-Record > Customize > Voice for a protagonist that already had the voice: the game copies a
-voice's lines into the character when the voice is chosen, so such a protagonist keeps
-v0.1's six lines, which now play the new sound files under v0.1's subtitles and leave
-orders silent.
-
-The component needs the game's hobgoblin animation (`8100.ini`, `MHOB*.BAM`) and
-stops with a message when it is missing. It also stops, before changing anything, when the
-mod's own weapon art is missing (an incompletely unpacked mod). EEex is not required; the lab uses it only for
-testing.
+To update from v0.1 or v0.2, uninstall it as above while its own files are still in place,
+then unpack the new version over them and install it. A protagonist made a hobgoblin by v0.1
+or v0.2 keeps being one and gets the race's rules. For a protagonist that had v0.1's voice,
+choose **Hobgoblin** again under Record > Customize > Voice: the game copies a voice's lines
+into the character when the voice is chosen.
 
 ## Tests
 

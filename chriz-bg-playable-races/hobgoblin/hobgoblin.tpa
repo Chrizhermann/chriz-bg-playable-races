@@ -1,5 +1,5 @@
-// Components 100 and 101, hobgoblin protagonist (included by setup-chriz-bg-playable-races.tp2,
-// which sets hg_template_race: the race whose rules character creation uses for the hobgoblin).
+// Component 100, hobgoblin protagonist (included by setup-chriz-bg-playable-races.tp2): race
+// HOBGOBLIN of its own in character creation (needs EEex, race.tpa), with the hobgoblin's look.
 
 // The hobgoblin animation is "monster_layered": it draws a weapon only when the active
 // weapon's two-character look code (ITM 0x22) equals one of the two codes in its INI, and
@@ -13,6 +13,17 @@
 // The weapon art ships with the mod (hobgoblin/weapons); without it the package is
 // incomplete, so stop before changing anything.
 ACTION_IF NOT FILE_EXISTS ~chriz-bg-playable-races/hobgoblin/weapons/art.tpa~ BEGIN FAIL @23 END
+
+// The race needs the mod's EEex hook (race.tpa): its race ID must be one the hook can give a label
+// of its own (8-255, and not 153, which the engine gives the elf's), and the game's executable must
+// have the engine code the hook redirects, exactly once. Checked before anything changes.
+OUTER_SET race_hob = IDS_OF_SYMBOL (~race~ ~HOBGOBLIN~)
+ACTION_IF race_hob < 0 BEGIN FAIL @4 END
+ACTION_IF (race_hob < 8) OR (race_hob > 255) OR (race_hob = 153) BEGIN FAIL @27 END
+LAF cbpr_race_hook_pattern RET hg_pattern = pattern END
+LAF cbpr_code_pattern_count STR_VAR exe = ~Baldur.exe~ pattern = EVAL ~%hg_pattern%~
+  RET hg_code_count = count hg_code_error = error END
+ACTION_IF (hg_code_error != 0) OR (hg_code_count != 1) BEGIN FAIL @26 END
 
 // ---------------------------------------------------------------- look codes in use
 // Melee weapon types (dagger, mace, sling, small/large sword, hammer, morning star, flail,
@@ -202,50 +213,22 @@ END
 // Inventory figure for the launcher body.
 LAF hg_make_inv_bam STR_VAR src = ~mhobg1~ dst = ~hgprinv~ END
 
+// ---------------------------------------------------------------- colours
+// The installed generic hobgoblin's palette, else the vanilla values.
+ACTION_DEFINE_ASSOCIATIVE_ARRAY hg_col BEGIN
+  0 => 30   1 => 48   2 => 47   3 => 19   4 => 21   5 => 29   6 => 0
+END
+ACTION_IF FILE_EXISTS_IN_GAME ~hobgob.cre~ BEGIN
+  COPY_EXISTING ~hobgob.cre~ ~override~
+    FOR (i = 0; i < 7; ++i) BEGIN
+      READ_BYTE (0x2c + i) v
+      SET $hg_col(~%i%~) = v
+    END
+  BUT_ONLY
+END
+
 // ---------------------------------------------------------------- race data
-// Race HOBGOBLIN in character creation: a row in every campaign race table, offered with the
-// rules of the template race hg_template_race (half-orc unless the tp2 sets another). The
-// engine creates only its seven standard races (lab run 14b), so choosing the hobgoblin creates
-// the template race, and the world scripts make the protagonist a hobgoblin as the game starts
-// (give_ability.baf). Where UI.MENU has no race selection to route, the race list leaves the
-// hobgoblin out and protagonists get the one-use ability instead.
-ACTION_IF NOT VARIABLE_IS_SET hg_template_race BEGIN OUTER_SET hg_template_race = 7 END
-OUTER_SET race_hob = IDS_OF_SYMBOL (~race~ ~HOBGOBLIN~)
-ACTION_IF race_hob < 0 BEGIN FAIL @4 END
-OUTER_SPRINT hg_template_sym ~~
-OUTER_PATCH ~~ BEGIN
-  LOOKUP_IDS_SYMBOL_OF_INT hg_template_sym ~race~ hg_template_race
-END
-ACTION_IF (hg_template_race = 1) BEGIN
-  OUTER_SET desc_ref = RESOLVE_STR_REF (@15)     // human rules
-  OUTER_SET hg_ability_desc = RESOLVE_STR_REF (@22)
-END ELSE BEGIN
-  OUTER_SET desc_ref = RESOLVE_STR_REF (@11)     // half-orc rules
-  OUTER_SET hg_ability_desc = RESOLVE_STR_REF (@21)
-END
-// Whatever the column names say, a race table's NAME holds the lower-case name the race list
-// shows ("human", "half-orc") and UPPERCASE the capitalized one the record screen shows
-// ("Human", "Half-Orc"); the record screen finds race 111's row by its ID (lab run 15c).
-LAF hg_offer_race INT_VAR race = race_hob template = hg_template_race name_ref = RESOLVE_STR_REF (@12)
-                          desc_ref upper_ref = RESOLVE_STR_REF (@10) bio_ref = RESOLVE_STR_REF (@13)
-  STR_VAR label = ~HOBGOBLIN~
-  RET hg_race_tables = tables hg_race_routed = routed
-END
-ACTION_IF (hg_race_tables = 0) BEGIN WARN @17 END
-ACTION_IF (hg_race_tables > 0) AND NOT hg_race_routed BEGIN WARN @8 END
-// After the transformation the race is HOBGOBLIN, and the engine gives race 111 nothing from
-// its race tables: it looks up SKILLRAC.2DA (thief skills) and RACEFEAT.2DA (infravision)
-// only under the names of its seven races, so a HOBGOBLIN row there does nothing (lab runs 15,
-// 15c, 15d). The transformation gives the template race's thief skill row as permanent
-// effects instead, and infravision. The engine counts skill effects only for the classes and
-// kits with that skill (THIEFSCL.2DA), as it counts the race row: a fighter gets neither.
-LAF hg_race_skill_bonuses INT_VAR race = hg_template_race
-  RET hg_skill_row = found RET_ARRAY hg_skill_bonus = bonuses END
-OUTER_SPRINT hg_skill_list ~~
-ACTION_PHP_EACH hg_skill_bonus AS op => v BEGIN
-  OUTER_SPRINT hg_skill_list ~%hg_skill_list% op%op% %v%~
-END
-PRINT ~Hobgoblin PC: race %race_hob% in %hg_race_tables% race table(s), choice routed %hg_race_routed%, rules of race %hg_template_race% (%hg_template_sym%), thief skill row %hg_skill_row%:%hg_skill_list%~
+INCLUDE ~chriz-bg-playable-races/hobgoblin/race.tpa~
 
 // ---------------------------------------------------------------- PC marker state
 OUTER_SET hg_splstate = IDS_OF_SYMBOL (~splstate~ ~HG_HOBGOBLIN_PC~)
@@ -306,19 +289,6 @@ COPY_EXISTING_REGEXP GLOB ~^.+\.itm$~ ~override~
   END
 BUT_ONLY
 
-// Colours: the installed generic hobgoblin's palette, else the vanilla values.
-ACTION_DEFINE_ASSOCIATIVE_ARRAY hg_col BEGIN
-  0 => 30   1 => 48   2 => 47   3 => 19   4 => 21   5 => 29   6 => 0
-END
-ACTION_IF FILE_EXISTS_IN_GAME ~hobgob.cre~ BEGIN
-  COPY_EXISTING ~hobgob.cre~ ~override~
-    FOR (i = 0; i < 7; ++i) BEGIN
-      READ_BYTE (0x2c + i) v
-      SET $hg_col(~%i%~) = v
-    END
-  BUT_ONLY
-END
-
 // ---------------------------------------------------------------- armour colours
 // While the marked PC wears body armour, the armour's class recolours the shoulder plates
 // (metal range), helmet and arm guards (armor range) and cloak (major range). Classes come
@@ -368,8 +338,50 @@ COPY_EXISTING_REGEXP GLOB ~^.+\.itm$~ ~override~
   END
 BUT_ONLY
 
-// ---------------------------------------------------------------- transformation
-// The protagonist's innate ability "Become a Hobgoblin". It borrows the icons of the
+// ---------------------------------------------------------------- race spells
+// HGPCRACE gives a hobgoblin the hobgoblin's look and the race's spell effects. The world scripts
+// (race_look.baf) cast it on each party member of race HOBGOBLIN with a character animation:
+// character creation gives the race the human's figure, and so does every dual-class.
+OUTER_SET race_elf = IDS_OF_SYMBOL (~race~ ~ELF~)
+DEFINE_PATCH_MACRO hg_race_effects BEGIN
+  LOCAL_SET i = 0
+  LOCAL_SET col = 0
+  // First its own earlier effects go, so it can be cast again and again, and those of the
+  // transformation of versions before 0.3 (HGPCXFRM, HGPCXNOW): their thief skill and infravision
+  // effects would now count twice, as the race tables give these.
+  PATCH_FOR_EACH res IN ~HGPCRACE~ ~HGPCXFRM~ ~HGPCXNOW~ BEGIN
+    LPF ADD_SPELL_EFFECT INT_VAR opcode = 321 target = hg_xtarget timing = 1 STR_VAR resource = EVAL ~%res%~ END
+  END
+  // Base animation, permanently (timing 1 sets the creature's base animation).
+  LPF ADD_SPELL_EFFECT INT_VAR opcode = 53 target = hg_xtarget timing = 1 parameter1 = slot_melee parameter2 = 0 END
+  // Base colours, except metal (0), major (2) and armor (5): body armour sets those while worn
+  // (see armour colours), and a permanent effect here could override the worn armour.
+  FOR (i = 0; i < 7; ++i) BEGIN
+    PATCH_IF (i != 0) AND (i != 2) AND (i != 5) BEGIN
+      SET col = $hg_col(~%i%~)
+      LPF ADD_SPELL_EFFECT INT_VAR opcode = 7 target = hg_xtarget timing = 1 parameter1 = col parameter2 = i END
+    END
+  END
+  // Marker state that lets the weapons switch this creature's animation INI.
+  // special = 1 selects SPLSTATE.IDS; with special = 0 the effect sits in the list
+  // but the state never reads as set (lab-verified; the installed SPPR508's markers use 1/1).
+  LPF ADD_SPELL_EFFECT INT_VAR opcode = 328 target = hg_xtarget timing = 9 parameter1 = 1 parameter2 = hg_splstate
+    special = 1 END
+  // Hatred of elves (The Complete Book of Humanoids): +1 to hit against race ELF (RACE.IDS,
+  // parameter 2 = 4); op178 takes the bonus from special.
+  PATCH_IF (race_elf >= 0) BEGIN
+    LPF ADD_SPELL_EFFECT INT_VAR opcode = 178 target = hg_xtarget timing = 9 parameter1 = race_elf parameter2 = 4
+      special = 1 END
+  END
+END
+// Target 2: the script's target.
+CREATE ~SPL~ ~hgpcrace~
+  LPF hg_spl_init END
+  SET hg_xtarget = 2
+  LPM hg_race_effects
+// The one-use ability "Become a Hobgoblin" of versions before 0.3, which gave it to protagonists.
+// This version gives it to no one; in saves that still have it, it makes its caster a hobgoblin:
+// race HOBGOBLIN, and HGPCRACE's effects (target 1, the caster). It borrows the icons of the
 // installed Polymorph Self, when there is one.
 OUTER_SPRINT hg_icon_book ~~
 OUTER_SPRINT hg_icon_ability ~~
@@ -384,65 +396,17 @@ ACTION_IF FILE_EXISTS_IN_GAME ~spwi416.spl~ BEGIN
       END
     END
 END
-// The transformation, for good: the hobgoblin look and colours, race HOBGOBLIN with the
-// template's thief skill row and infravision, and the marker state. Its effects go to target
-// hg_xtarget: 1 (the caster) in the innate ability, 2 (the script's target, Player1) where a
-// world script applies it.
-DEFINE_PATCH_MACRO hg_xfrm_effects BEGIN
-  LOCAL_SET i = 0
-  LOCAL_SET col = 0
-  LOCAL_SET op = 0
-  LOCAL_SET v = 0
-  // Base animation, permanently (timing 1 sets the creature's base animation).
-  LPF ADD_SPELL_EFFECT INT_VAR opcode = 53 target = hg_xtarget timing = 1 parameter1 = slot_melee parameter2 = 0 END
-  // Base colours, except metal (0), major (2) and armor (5): body armour sets those while worn
-  // (see armour colours), and a permanent effect here could override the worn armour.
-  FOR (i = 0; i < 7; ++i) BEGIN
-    PATCH_IF (i != 0) AND (i != 2) AND (i != 5) BEGIN
-      SET col = $hg_col(~%i%~)
-      LPF ADD_SPELL_EFFECT INT_VAR opcode = 7 target = hg_xtarget timing = 1 parameter1 = col parameter2 = i END
-    END
-  END
-  // Race HOBGOBLIN, permanently.
-  LPF ADD_SPELL_EFFECT INT_VAR opcode = 72 target = hg_xtarget timing = 1 parameter1 = race_hob parameter2 = 2 END
-  // The template race's thief skill row and infravision, for good (see the race section).
-  // Timing 9, not 1: timing 1 would add to the base skills, which the engine counts for
-  // every class (lab run 15c).
-  PHP_EACH hg_skill_bonus AS op => v BEGIN
-    LPF ADD_SPELL_EFFECT INT_VAR opcode = op target = hg_xtarget timing = 9 parameter1 = v parameter2 = 0 END
-  END
-  LPF ADD_SPELL_EFFECT INT_VAR opcode = 63 target = hg_xtarget timing = 9 END
-  // Marker state that lets the weapons switch this creature's animation INI.
-  // special = 1 selects SPLSTATE.IDS; with special = 0 the effect sits in the list
-  // but the state never reads as set (lab-verified; the installed SPPR508's markers use 1/1).
-  LPF ADD_SPELL_EFFECT INT_VAR opcode = 328 target = hg_xtarget timing = 9 parameter1 = 1 parameter2 = hg_splstate
-    special = 1 END
-  // One use: the ability goes (also from a protagonist a world script transforms).
-  LPF ADD_SPELL_EFFECT INT_VAR opcode = 172 target = hg_xtarget timing = 1 STR_VAR resource = ~hgpcxfrm~ END
-END
 CREATE ~SPL~ ~hgpcxfrm~
   LPF hg_spl_init END
   WRITE_LONG 0x08 RESOLVE_STR_REF (@20)
-  WRITE_LONG 0x50 hg_ability_desc   // the template race's traits (race data)
+  WRITE_LONG 0x50 RESOLVE_STR_REF (@21)
   WRITE_ASCIIE 0x3a ~%hg_icon_book%~ #8
   WRITE_ASCIIE 0x76 ~%hg_icon_ability%~ #8   // ability icon
+  LPF ADD_SPELL_EFFECT INT_VAR opcode = 72 target = 1 timing = 1 parameter1 = race_hob parameter2 = 2 END
   SET hg_xtarget = 1
-  LPM hg_xfrm_effects
-
-// The world scripts (give_ability.baf) run once per game. A protagonist created as the
-// hobgoblin in this game's character creation becomes one at once: HGPCXNOW is the
-// transformation for them. Any other protagonist not created with another race in this game,
-// as in games started by import and saves made before this install, gets the ability:
-// HGPCGIVE hands it over. A protagonist who already is a hobgoblin gets nothing. Target 2:
-// the script's target, Player1.
-CREATE ~SPL~ ~hgpcxnow~
-  LPF hg_spl_init END
-  SET hg_xtarget = 2
-  LPM hg_xfrm_effects
-CREATE ~SPL~ ~hgpcgive~
-  LPF hg_spl_init END
-  LPF ADD_SPELL_EFFECT INT_VAR opcode = 171 target = 2 timing = 1 STR_VAR resource = ~hgpcxfrm~ END
-LAF hg_extend_world_scripts STR_VAR baf = ~chriz-bg-playable-races/hobgoblin/give_ability.baf~
+  LPM hg_race_effects
+  LPF ADD_SPELL_EFFECT INT_VAR opcode = 172 target = 1 timing = 1 STR_VAR resource = ~hgpcxfrm~ END
+LAF hg_extend_world_scripts STR_VAR baf = ~chriz-bg-playable-races/hobgoblin/race_look.baf~
   RET hg_world_scripts = count END
 
 // ---------------------------------------------------------------- voice
@@ -464,4 +428,4 @@ LAF hg_clip_voice INT_VAR display = RESOLVE_STR_REF (@10)
           clip_leader1     = ~HOBGL03~   // becomes leader: "Forward march!" again
           clip_criticalhit = ~HOBGL04~   // critical hit: "Spare no one!" again
   RET hg_voice_slots = slots END
-PRINT ~Hobgoblin PC: transformation and ability via %hg_world_scripts% world script(s), voice set with %hg_voice_slots% slot(s)~
+PRINT ~Hobgoblin PC: look and race effects via %hg_world_scripts% world script(s), voice set with %hg_voice_slots% slot(s)~

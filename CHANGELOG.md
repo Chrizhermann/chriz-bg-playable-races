@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.3.0-proto (unreleased)
+
+- The hobgoblin is a race of its own: character creation creates race HOBGOBLIN (111) with its
+  own rules, read from the race tables under the label `HOBGOBLIN`. An EEex hook
+  (`race/M_CBPRRC.lua`, found through `race/CBPRRACE.db`) makes the engine give race 111 that
+  label; without it the engine has labels for its seven races only. **Needs EEex** (lab: v1.2.0).
+- The race's rules (The Complete Book of Humanoids, with Chris's changes; decided 2026-10-19):
+  +1 Constitution, -1 Wisdom, -1 Charisma; Constitution 12-19, Strength and Dexterity at least 6;
+  infravision; the human's thief skills with +5% Open Locks, +5% Find Traps, +10% Move Silently,
+  +5% Hide in Shadows; the half-orc's classes, kits, mage schools and racial to-hit bonuses as
+  the installed game has them (with a mod that opens all classes to all races, all of them);
+  dual-class allowed; +1 to hit against elves (`op178`).
+- The look: on top of the campaigns' world scripts, a block per party slot gives a hobgoblin with
+  a character animation (character creation gives the race the human's) the hobgoblin's look and
+  the race's spell effects (`HGPCRACE`). Every party member of race HOBGOBLIN gets them, not only
+  the protagonist.
+- Removed: component 101 (human rules), the template race, the routed race choice in `UI.MENU`
+  (no `UI.MENU` change anymore), the transformation at game start (`HGPCXNOW`) and the ability
+  handed out to protagonists (`HGPCGIVE`).
+- Saves from v0.1 and v0.2: a protagonist made a hobgoblin keeps race 111 and now gets the race's
+  rules from the tables; once per game, `HGPCRACE` replaces the old version's effects and adds the
+  hatred of elves. `HGPCXFRM` stays, for saves whose protagonist still has the ability.
+- The installer stops before changing anything without EEex (its hook functions, pattern folder
+  and `EEex_LuaTrigger`), when `Baldur.exe` does not have the engine code the hook redirects
+  exactly once, when `RACE.IDS` gives HOBGOBLIN a number the hook cannot label, when another mod
+  has HOBGOBLIN entries in the race tables or a race 111 row in a race list of character
+  creation, and when `ABRACEAD` or `ABRACERQ` lack a column the race sets.
+- `lib/race_functions.tpa`: race tables read line by line (short rows, LF line ends, columns in any
+  order), the pattern search in the executable, the race list of the hook.
+  [docs/new-race-with-eeex.md](docs/new-race-with-eeex.md) explains the method for other races.
+- Known issue, since v0.1: after loading a save, a hobgoblin holding a weapon other than a long
+  sword or halberd shows no weapon until the weapon is changed (the engine applies the weapon's
+  equipped effects before the marker state is in force; lab run 18b).
+
 ## v0.2.0-proto (unreleased)
 
 - Hobgoblin in character creation: race lists in every campaign offer the hobgoblin, with

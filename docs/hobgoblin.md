@@ -1,10 +1,32 @@
-# Hobgoblin protagonist (components 100 and 101)
+# Hobgoblin protagonist (component 100)
 
 The component builds everything from the installed game: the hobgoblin animation INI
-`8100.ini`, the `MHOB*` sprite files, `HOBGOB.CRE` colours, the game's item list, the
-campaigns' race tables, `UI.MENU`, the game's ten hobgoblin sound clips and the campaigns'
-world scripts. The two subcomponents differ only in the template race whose rules character
-creation uses for the hobgoblin: 100 the half-orc, 101 the human.
+`8100.ini`, the `MHOB*` sprite files, `HOBGOB.CRE` colours, the game's item list, the race
+tables, the game's ten hobgoblin sound clips and the campaigns' world scripts. The hobgoblin is
+a race of its own: the engine reads its rules from the race tables under the label
+`HOBGOBLIN`, which an EEex hook gives race 111 ([new-race-with-eeex.md](new-race-with-eeex.md)).
+So the component needs EEex.
+
+## The rules
+
+The hobgoblin of AD&D 2nd edition's *The Complete Book of Humanoids* (CBOH), with Chris's
+changes (decided 2026-10-19). The installer writes them into the race tables (step 5).
+
+| | CBOH | This mod |
+|---|---|---|
+| Ability adjustments | Charisma -1 | Constitution +1, Wisdom -1, Charisma -1 |
+| Ability limits | Strength 6, Dexterity 6, Constitution 5 at least; Charisma 14 at most | Strength and Dexterity at least 6; Constitution 12-19; Wisdom and Charisma at most 17 |
+| Thief skills | Open Locks +5%, Find Traps +5% | the human's, with Open Locks +5%, Find Traps +5%, Move Silently +10%, Hide in Shadows +5% |
+| Infravision | 60 feet | yes |
+| Hatred of elves | yes | +1 to hit against elves |
+| Classes | the book's list | the half-orc's in the installed game, with its kits, mage schools and racial to-hit bonuses |
+| Dual-class | humans only | yes |
+
+Left out: the book's level limits (the games have none), its sense for new construction
+underground (no game mechanic), and its Charisma limit of 14, which would rule out paladins
+(17), bards and druids (15) where a mod opens all classes to all races. The limits are those of
+the roll: the engine rolls within `ABRACERQ` and adds `ABRACEAD` afterwards (lab run 18), so
+`MIN_CON` 11 and `MAX_CON` 18 with +1 give 12-19.
 
 ## What the installer builds
 
@@ -40,29 +62,43 @@ creation uses for the hobgoblin: 100 the half-orc, 101 the human.
    art in `art.tpa` or on another geometry (another mod's hobgoblin sprite; the installer
    warns). Launchers get the hobgoblin's bow. Without `art.tpa` the mod is incompletely
    unpacked, and the installer stops before it changes anything.
-5. **Race in character creation.** A row `HOBGOBLIN` for race 111 in every race table a
-   campaign uses (column `RACETEXT` of `CAMPAIGN.2DA`, EET: `RACETEXT`, `BGRACTXT`,
-   `SODRACE`; and `RACETEXT.2DA` itself), in front of the first row without a description:
-   the race list keys each race by its row and stops at a gap. The row has the names
-   `hobgoblin` and `Hobgoblin`, the subcomponent's description, and the hobgoblin's
-   biography in each table where the template race has one. Whatever the column names say,
-   the games keep the lower-case name the race list shows in `NAME` ("half-orc") and the
-   capitalized one the record screen shows in `UPPERCASE` ("Half-Orc"), and the record
-   screen finds a race's row by its ID.
-   - `UI.MENU`'s race selection (`createCharScreen:OnRaceSelectButtonClick`) goes through
-     `cbprRaceSelect`, added to its end: race 111 creates the template race and sets the
-     global `CBPR_HOBGOBLIN_CHARGEN` to 1, any other race sets it to 2.
-   - Where the UI takes the biography's race part from `bioRaceData` by the race the list
-     offers (EET does), choosing the hobgoblin adds race 111 there: the template's entry,
-     its biographies replaced by the hobgoblin's.
-   - Without a race selection to route (a UI mod that replaced `UI.MENU`), the rows get no
-     description, so the list leaves the hobgoblin out, and protagonists get the ability
-     instead (warned). The same when every race table has a race 111 row already.
-   - After the transformation the race is HOBGOBLIN, and the engine gives race 111 nothing
-     from `SKILLRAC.2DA` (thief skills) or `RACEFEAT.2DA` (infravision): it reads them only
-     under the names of its seven races. So the installer reads the template race's thief
-     skill row (`HALFORC` or `HUMAN`, columns by name) for the transformation (step 9) and
-     adds no rows to those tables.
+5. **Race HOBGOBLIN.** Before anything changes, the component checks EEex (`M___EEex.lua`,
+   the hook's functions in `EEex_scripts`, the folder `EEex_scripts/extra_pattern_dbs`,
+   `EEex_LuaTrigger` in `TRIGGER.IDS`), that `RACE.IDS` gives HOBGOBLIN a number the hook can
+   label (8-255, not 153), and that the code sections of `Baldur.exe` contain the hook's
+   pattern exactly once. Then `hobgoblin/race.tpa` writes:
+   - an entry `HOBGOBLIN` in each race table the game has; every entry not set below is the
+     half-orc's (`HALFORC`), for thief skills the human's:
+
+     | Table | Entry |
+     |---|---|
+     | `ABRACEAD` | `MOD_CON` 1, `MOD_WIS` -1, `MOD_CHR` -1, the others 0 |
+     | `ABRACERQ` | `MIN_STR` 6, `MIN_DEX` 6, `MIN_CON` 11, `MIN_WIS` 4, `MIN_CHR` 4, `MIN_INT` 3, every maximum 18 |
+     | `SKILLRAC` | the human's row, `OPEN_LOCKS` +5, `FIND_TRAPS` +5, `MOVE_SILENTLY` +10, `HIDE_IN_SHADOWS` +5 |
+     | `RACEFEAT` | `VALUE` 1 (infravision) |
+     | `CLSRCREQ` | the half-orc's column, `DUALCLASS` 1 |
+     | `KITTABLE` | the half-orc's column (`K_<class>_HO`) |
+     | `MGSRCREQ`, `RACETHAC` | the half-orc's column |
+     | `RACECOLR` | `SKIN` and `HAIR`: the hobgoblin's colours from `HOBGOB.CRE` |
+
+     A table with a `HOBGOBLIN` entry of another mod stops the install, and so does an
+     `ABRACEAD` or `ABRACERQ` without a column the race sets (it would roll without its
+     limits); any other missing entry only warns. The tables are read line by line, so short
+     rows, LF line ends, columns in any order and other mods' rows and columns work.
+   - a row `HOBGOBLIN` for race 111 in every race table a campaign uses (column `RACETEXT` of
+     `CAMPAIGN.2DA`, EET: `RACETEXT`, `BGRACTXT`, `SODRACE`; and `RACETEXT.2DA` itself), in
+     front of the first row without a description: the race list keys each race by its row and
+     stops at a gap. The row has the names `hobgoblin` and `Hobgoblin`, the description, and
+     the hobgoblin's biography in each table where the human has one. A table with a row for
+     race 111 or `HOBGOBLIN` already stops the install. Whatever the column names say, the
+     games keep the lower-case name the race list shows in `NAME` ("half-orc") and the
+     capitalized one the record screen shows in `UPPERCASE` ("Half-Orc"), and the record
+     screen finds a race's row by its ID.
+   - the race in the hook's list `CBPRRACE.2DA` (label, number, biography), and the hook's
+     files: `M_CBPRRC.lua` in `override`, `CBPRRACE.db` in `EEex_scripts/extra_pattern_dbs`.
+     At game start the hook makes `CRuleTables::GetRaceString` answer race 111 with
+     `HOBGOBLIN`, and adds race 111 to EET's `bioRaceData`, from which character creation
+     takes the biography's race part.
 6. **Marker state.** `HG_HOBGOBLIN_PC` in `SPLSTATE.IDS` (existing entry, else the first
    free state). `SPLPROT.2DA` rows for "state not set" `(0x112, -1, 5)` and "state set"
    `(0x112, -1, 1)` are reused when present, else appended.
@@ -76,27 +112,28 @@ creation uses for the hobgoblin: 100 the half-orc, 101 the human.
    `HGA<code>.EFF` to the wearer once per second. That EFF's `op326` applies
    `HGA<code>.SPL` only to a creature with the marker state. The spell sets the metal and
    armor colour ranges, and for robes the cloak, for 3 seconds.
-9. **Transformation.** `HGPCXFRM`, the innate ability "Become a Hobgoblin" (with the
-   icons of the installed Polymorph Self, `SPWI416`, when present, and a description that
-   names the template race's traits it gives), and `HGPCXNOW`, the
-   same effects for the world scripts, set the permanent base animation (melee base INI),
-   the base colours for skin, hair, leather and minor ranges from `HOBGOB.CRE`, race
-   HOBGOBLIN and the marker state, then remove the ability (`op172`). They also give the
-   template race's thief skill row as permanent effects (timing 9: `op92` pick pockets,
-   `op90` open locks, `op91` find traps, `op59` move silently, `op275` hide in shadows,
-   `op276` detect illusion, `op277` set traps; values of 0 left out) and infravision
-   (`op63`). The engine counts skill effects only for the classes and kits that have the
-   skill, as it counts the race row, so a hobgoblin has the template race's skills in
-   every class.
-10. **World scripts.** Two blocks on top of every world script that `CAMPAIGN.2DA` names
-    (EET: `BALDUR`, `BALDUR25`, `BDBALDUR`; `BALDUR.BCS` when the table names none) act
-    once per game (global `CBPR_HOBGOBLIN_GIVEN`), when the protagonist is in the party,
-    alive and not yet a hobgoblin:
-    - created as the hobgoblin in this game's character creation
-      (`CBPR_HOBGOBLIN_CHARGEN` 1): `HGPCXNOW`, the protagonist becomes a hobgoblin at once;
-    - not created in this game's character creation (0: imported, saves made before this
-      install, a UI without the routed choice): `HGPCGIVE` (`op171`) hands over the ability;
-    - created with another race (2): nothing.
+9. **Race spells.** `HGPCRACE` gives a hobgoblin the hobgoblin's look and the race's spell
+   effects. First `op321` removes its own earlier effects and those of the transformation of
+   v0.1 and v0.2 (`HGPCXFRM`, `HGPCXNOW`): v0.2's thief skill and infravision effects would
+   now count on top of the race tables. Then: the permanent base animation (melee base INI),
+   the base colours for skin, hair, leather and minor ranges from `HOBGOB.CRE`, the marker
+   state, and `op178` with timing 9 (parameter 1 the `ELF` entry of `RACE.IDS`, parameter 2 4
+   for `RACE.IDS`, special 1 the bonus): +1 to hit against elves. `HGPCXFRM`, the innate
+   ability "Become a Hobgoblin" of v0.1 and v0.2 (with the icons of the installed Polymorph
+   Self, `SPWI416`, when present), stays for saves whose protagonist still has it: race
+   HOBGOBLIN and `HGPCRACE`'s effects, then it removes itself (`op172`). No one gets it
+   anymore.
+10. **World scripts.** On top of every world script that `CAMPAIGN.2DA` names (EET: `BALDUR`,
+    `BALDUR25`, `BDBALDUR`; `BALDUR.BCS` when the table names none), `race_look.baf` adds:
+    - one block per party slot: a member of race HOBGOBLIN, not dead, with a character
+      animation (`CBPR_HasCharacterAnimation`, Lua through `EEex_LuaTrigger`; `0x5000`-
+      `0x6FFF`) gets `HGPCRACE`. Character creation gives the race the human's figure, and in
+      lab run 17b finishing a dual-class picked the figure again from class and race (the human
+      fighter's);
+    - once per game (global `CBPR_HOBGOBLIN_RACE`), a protagonist of race HOBGOBLIN with the
+      marker gets `HGPCRACE`: a hobgoblin of v0.1 or v0.2 loses that version's effects and
+      gains the hatred of elves. A hobgoblin of this version matches once too; `HGPCRACE` then
+      only replaces its own effects.
 11. **Inventory figure.** `<body>INV.BAM` for each body (`HGPMINV`, `HGP1INV`, ...) and
     `HGPRINV.BAM`, from `MHOBG1.BAM`: frame 0 of
     cycle 16 (standing, facing south) at twice the size, with the source palette, as a
@@ -148,7 +185,7 @@ creation uses for the hobgoblin: 100 the half-orc, 101 the human.
 
 ## Why it is built this way
 
-Findings from the lab (EET on BG2:EE 2.7.3.0, EEex for inspection only), 2026-10-17:
+Findings from the lab (EET on BG2:EE 2.7.3.0; EEex, then for inspection only), 2026-10-17:
 
 - `op318` blocks an `op177` EFF only when the EFF names itself as parent resource (EFF V2
   `0x90` type 1, `0x94` own name). WeiDU's `CREATE ~EFF~` leaves both empty, so the
@@ -233,13 +270,16 @@ The voice, 2026-10-18:
   `dialog.tlk`, so those lines stay valid and now name the new sound files, under v0.1's
   subtitles.
 
-Character creation and the race, 2026-10-17 and 2026-10-18 (lab runs 14-16):
+Character creation and the race in v0.2, 2026-10-17 and 2026-10-18 (lab runs 14-16). v0.2
+created the hobgoblin as a template race and transformed it; v0.3 replaced that with a race of
+its own (next section). The engine facts below hold without the hook:
 
 - A race 111 row with a description in each campaign race table puts the hobgoblin into the
   race list (run 14). The list keys each race by its row and stops at the first row
   without a description, so the row goes in front of that one.
-- Choosing race 111 itself offers no class: the engine creates only its seven races (run
-  14b). Hence the routed choice, which creates the template race.
+- Choosing race 111 itself offers no class (run 14b): the engine labels only its seven races,
+  and a race without a label gets the race tables' defaults. Hence v0.2's routed choice, which
+  created the template race.
 - `C:SetGlobal` works in character creation with cheats off. In run 15 the hobgoblin
   choice set `CBPR_HOBGOBLIN_CHARGEN` to 1, the other races to 2, and the world script made
   the protagonist a hobgoblin as the game began: race 111, animation `0x8101`, the marker,
@@ -276,10 +316,60 @@ Character creation and the race, 2026-10-17 and 2026-10-18 (lab runs 14-16):
   "Half-Orc", "Human", "Goblin" (run 15c). The first v0.2 install had the two names the
   other way round, so the record screen showed "HOBGOBLIN" and the race list "Hobgoblin"
   among "human" to "half-orc". Now they show "Hobgoblin" and "hobgoblin" (runs 16, 16b).
-- The record screen offers dual-classing only to humans. With every ability at 18 and the
-  level-up to thief level 2 done, its dual-class button was on for the character as a
-  human, off as a hobgoblin and on again as a human (component 101, run 16c). A pending
+- The record screen offers dual-classing by the race's `DUALCLASS` entry in `CLSRCREQ.2DA`
+  (in the games: humans only). With every ability at 18 and the level-up to thief level 2
+  done, its dual-class button was on for the character as a human, off as a hobgoblin without
+  the hook and on again as a human (component 101, run 16c). A pending
   level-up, and level 1, keep the button off for every race (runs 15d, 16b).
+
+The race of its own, 2026-10-19 (lab runs 17 to 18c, EET over BG2:EE 2.7.3.0 with EEex
+v1.2.0, the lab copy of Chris's install, where Artisan's Kitpack opens all classes to all
+races):
+
+- Runs 17 and 17b proved the hook with marker values for race 111 in seven race tables
+  (classes and dual-class, kits, ability adjustments and limits, thief skills, infravision,
+  colours; not `RACETHAC` and `MGSRCREQ`); [new-race-with-eeex.md](new-race-with-eeex.md)
+  describes the method.
+- v0.3.0 as installed (run 18): no warning. At the start screen `CBPR_RaceHook.Status` was
+  "active for HOBGOBLIN (111) at 0x140246440", and `bioRaceData` had race 111's entry with the
+  hobgoblin's biography.
+- Character creation listed "hobgoblin" eighth, with its description. It offered the same 21
+  classes as to the half-orc and, for a thief, the same nine kits. 3,000 rerolls each for a
+  thief: hobgoblin STR 6-18, DEX 9-18 (the thief's minimum), CON 12-19, INT 4-18, WIS 3-17, CHA
+  3-17; half-orc STR 5-19, CON 4-19, INT 1-16; human STR 4-18, CON 3-18. The engine rolls within
+  `ABRACERQ` and adds `ABRACEAD` afterwards, without limiting the sum again (the half-orc's
+  INT 1).
+- Thief skills at DEX 13-15 before any points (pick pockets to set traps): hobgoblin
+  15/15/10/20/10/10/0, human 15/10/5/10/5/10/0, half-orc 15/10/10/10/5/5/0; in this install the
+  `SKILLRAC` rows hold the whole base. In the game, with 6/6/6/6/6/5/5 points:
+  21/21/16/26/16/15/5.
+- In the world, when the driver first looked: race 111, the hobgoblin figure (`0x8101`, with
+  the staff `0x8108`), the marker, `op178` against `ELF` (special 1), racial infravision, and
+  the race "Hobgoblin" on the record screen. The once-per-game block for older saves had
+  matched this new hobgoblin too; `HGPCRACE`'s effects were there once each.
+- Dual-class: at thief level 2 (abilities set to 18) the dual-class button was on, and fighter,
+  cleric and mage were offered. After dual-classing to fighter: Fighter/Thief with fighter level
+  1 and thief level 2, race 111, and the hobgoblin figure two seconds later.
+- Saving and reloading kept race, figure, marker and effects; the hook was active after the
+  reload.
+- A v0.1 save (a paladin made a hobgoblin with the ability, run 11): after loading, the block
+  for older saves had given `HGPCRACE` (race 111, figure, marker, `op178`). A v0.2 save (a thief
+  of the run 16 series, made a hobgoblin by v0.2's transformation): of the `HGPC*` effects only
+  `HGPCRACE`'s were left, so v0.2's skill effects were gone, and the thief had
+  21/21/16/26/16/15/5, the hobgoblin row plus its points.
+- Infravision (runs 18b, 18c): `CGameSprite::AIUpdate` sets the sprite's `m_bInfravisionOn` for
+  a party member that is not asleep when its state has `STATE_INFRAVISION` (`op63`) or
+  `CRuleTables::GetRaceFeatures` finds infravision for its race (`RACEFEAT.2DA`, under the
+  race's label), and clears it otherwise. In run 18c it was set only while that member was the
+  only one selected. The v0.1 protagonist had it with its infravision helmet and still after the
+  helmet was destroyed: the race gives it, also to hobgoblins made in older versions.
+- The weapon look after loading (run 18b): a save made with the staff selected loaded with the
+  melee base INI (`0x8101`). At load the staff's `op318` (immune unless the marker is set) was
+  in its equipped effects and its `op177` was not: the engine applies equipped effects before
+  the marker state is in force. Selecting the fist and the staff again gave `0x8108`. The
+  switches date from v0.1; earlier lab saves had fists selected (see Open).
+- Uninstall (runs 18, 18b, 18c): all 40,866 files under `override` and `EEex_scripts` matched
+  the state before the install.
 
 The weapon art, 2026-10-18:
 
@@ -301,7 +391,7 @@ The weapon art, 2026-10-18:
 `python tests/run_tests.py --weidu <weidu.exe>` runs the library's functions in small
 synthetic game folders (made-up tables, strings, creatures, scripts and sprites; no game
 needed):
-- world-script discovery, and the shipped `give_ability.baf` compiled on top of the world
+- world-script discovery, and the shipped `race_look.baf` compiled on top of the world
   scripts;
 - the `CHARSND.2DA` check and the clips' subtitles from the string table;
 - the curated voice in BG2:EE, EET and BG:EE row order: strings, sound files, menu line
@@ -318,14 +408,26 @@ needed):
 - the shipped weapon art: one file per group and sprite file, no palette, no colour but the
   tool's own, the same cycles in every group, and the checksums of all eight sprite files;
 - the race in character creation: the row in a race table (placement behind the described
-  rows, columns in any order, a taken label or race), the routed race selection in
-  `UI.MENU` (from a BIFF or override, a second call, the dry run, the biography entry),
-  the race in every campaign table with and without a routable `UI.MENU`, and the table
-  lookup it uses;
-- the template race's thief skill row as the engine reads it: its own row names, the label
-  in any letter case, columns in any order and among others, values below 0, the table's
-  default value for a missing row or column, no table, and nothing for a race outside the
-  seven even with a row of its name;
+  rows, columns in any order, a taken label or race), the race in every campaign table with
+  its biography where the human has one, and the table lookup it uses;
+- the race tables line by line: a race's row or column on the layouts mods leave (columns in
+  another order and among others, short and long rows, blank lines, LF line ends, no final line
+  end, a header only), each entry from the values given, the base race or the table's default
+  value, and a taken label; single entries by row and column;
+- the hobgoblin's race data (`race.tpa`) on plain and modded tables, with optional tables
+  missing and with EET's campaign tables, and where it stops (an ability table without a column
+  it sets, another mod's `HOBGOBLIN` entry, a race list with race 111) or warns (no `DUALCLASS`
+  row);
+- the pattern search in synthetic 64-bit PE files: once, twice, none, a near miss, wildcards
+  filled with `%`, `~` and 0, data and non-executable sections, a match at a section's end, a
+  pattern with `%` and `~` among its fixed bytes, no file, no PE file, bad patterns;
+- the hook's race list: a new list, a second race, the same race again, a label or number
+  another race has, numbers and labels the hook cannot take, no `ID` column, the hook's files
+  from another mod's folder, uninstall; and that the hook's Lua, pattern file, installer and
+  world script agree;
+- the component's checks with the real tp2: no EEex, no script trigger, no hook functions, no
+  executable, the engine code missing or twice, race number 153; each stops before any game
+  file changes;
 - weapon shafts without gaps at any length and angle, and each weapon with connected parts
   drawn in one piece;
 - world scripts from a `CAMPAIGN.2DA` without data rows, as BG:EE and BG2:EE 2.7 have;
@@ -336,9 +438,17 @@ The tests include uninstall. Any WeiDU 249 or newer works, also a mod's `setup-*
 
 ## Open
 
+- The weapon look after loading a save (since v0.1): at load the engine applies a weapon's
+  equipped effects before the marker state is in force, so `op318` blocks the switch and the
+  hobgoblin shows its melee base INI (long sword and halberd) until the weapon changes (run
+  18b).
+- EEex v1.3.1, BG:EE and SoD outside EET, and game versions other than 2.7.3.0: not
+  lab-tested.
 - Listening to the voice in a real game: the lab runs muted, so it checked subtitles and
   the engine's state, not the sound.
 - More voice lines.
 - Before a release: check the `HG*` resource names (`HGPM*`, `HGP1*`-`HGP9*`, `HGPR*`,
-  `HGE*`, `HGA*`, `HGPC*`), the Lua names `cbprRaceSelect` and `cbprRaceBio`, the globals
-  `CBPR_HOBGOBLIN_*` and the voice set name `CBPRHG` against other mods.
+  `HGE*`, `HGA*`, `HGPC*`), `CBPRRACE.2DA`, `CBPRRACE.db`, `M_CBPRRC.lua`, the label
+  `CBPR-CRuleTables::GetRaceString`, the Lua names `CBPR_RaceHook`,
+  `CBPR_HasCharacterAnimation` and `CBPR_GetRaceString_Original`, the global
+  `CBPR_HOBGOBLIN_RACE` and the voice set name `CBPRHG` against other mods.

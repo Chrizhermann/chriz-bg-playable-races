@@ -9,6 +9,7 @@ import hashlib
 import math
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -72,15 +73,17 @@ def world_scripts(work, weidu):
     return fails
 
 
-# --- The ability block on top of the world scripts -------------------------------------
+# --- The look block on top of the world scripts ----------------------------------------
 
-# Just the IDS entries the scripts use, with the EE games' signatures.
+# Just the IDS entries the scripts use, with the EE games' signatures (EEex_LuaTrigger: EEex's).
 SCRIPT_IDS = {
-    "TRIGGER.IDS": ["0x400F Global(S:Name*,S:Area*,I:Value*)", "0x4037 StateCheck(O:Object*,I:State*State)",
-                    "0x4043 InParty(O:Object*)", "0x40E2 CheckSpellState(O:Object*,I:State*splstate)"],
+    "TRIGGER.IDS": ["0x400F Global(S:Name*,S:Area*,I:Value*)", "0x4017 Race(O:Object*,I:Race*Race)",
+                    "0x4037 StateCheck(O:Object*,I:State*State)", "0x4043 InParty(O:Object*)",
+                    "0x40E2 CheckSpellState(O:Object*,I:State*splstate)", "0x410E EEex_LuaTrigger(S:Chunk*)"],
     "ACTION.IDS": ["30 SetGlobal(S:Name*,S:Area*,I:Value*)", "36 Continue()", "160 ApplySpellRES(S:RES*,O:Target)"],
-    "OBJECT.IDS": ["0 Nothing", "1 Myself", "21 Player1"],
+    "OBJECT.IDS": ["0 Nothing", "1 Myself"] + [f"{20 + n} Player{n}" for n in range(1, 7)],
     "STATE.IDS": ["0x00000FC0 STATE_REALLY_DEAD"],
+    "RACE.IDS": ["1 HUMAN", "2 ELF", "111 HOBGOBLIN"],
 }
 OTHER_BLOCK = """IF
   Global("OTHER_MOD_{n}","GLOBAL",0)
@@ -89,9 +92,9 @@ THEN
     SetGlobal("OTHER_MOD_{n}","GLOBAL",1)
 END
 """
-GIVE_BAF = MOD / "hobgoblin/give_ability.baf"
+LOOK_BAF = MOD / "hobgoblin/race_look.baf"
 EW_TP2 = r"""OUTER_SET hg_splstate = 195
-LAF hg_extend_world_scripts STR_VAR baf = ~cbprtest/give_ability.baf~ RET count END
+LAF hg_extend_world_scripts STR_VAR baf = ~cbprtest/race_look.baf~ RET count END
 PRINT ~RESULT EW %count%~
 """
 
@@ -120,13 +123,13 @@ def find_ci(folder, name):
 
 @test
 def world_script_extension(work, weidu):
-    """The shipped give_ability.baf, its marker state filled in, goes on top of each world
+    """The shipped race_look.baf, its marker state filled in, goes on top of each world
     script the campaigns run (once, also when named twice), in front of the blocks already
     there; named scripts the game lacks are skipped and other scripts stay as they are;
     BALDUR.BCS without a CAMPAIGN.2DA; uninstall restores the override folder byte for byte."""
-    ours = GIVE_BAF.read_text(encoding="ascii").replace("%hg_splstate%", "195")
+    ours = LOOK_BAF.read_text(encoding="ascii").replace("%hg_splstate%", "195")
     if "%" in ours:
-        return [f"give_ability.baf uses a variable this test does not fill in: {ours}"]
+        return [f"race_look.baf uses a variable this test does not fill in: {ours}"]
     bcs, out = compile_bafs(work, weidu, {"ours": ours, "old1": OTHER_BLOCK.format(n=1),
                                           "old2": OTHER_BLOCK.format(n=2)})
     if bcs is None:
@@ -144,7 +147,7 @@ def world_script_extension(work, weidu):
         biff = {**script_ids(), "BALDUR25.BCS": bcs["old2"], **({"CAMPAIGN.2DA": table} if table else {})}
         g = fg.FakeGame(work / f"ew_{name}", weidu, EW_TP2, biff=biff,
                         override={"BALDUR.BCS": bcs["old1"], "AR0602.BCS": bcs["old1"]})
-        (g.root / "cbprtest/give_ability.baf").write_bytes(GIVE_BAF.read_bytes())
+        (g.root / "cbprtest/race_look.baf").write_bytes(LOOK_BAF.read_bytes())
         before = g.override()
         out = g.install()
         problems = []
@@ -722,9 +725,10 @@ def missing_weapon_art(work, weidu):
     """Without the weapon art (an incompletely unpacked mod) the component stops with its
     message before it changes any game file, and is not installed."""
     sprites = {name: creature_bam()[0] for name in ("mhobg1.bam", "mhobsg1.bam", "mhobbg1.bam")}
-    g = fg.FakeGame(work / "noart", weidu, "", override={"8100.ini": b"[general]\r\n", **sprites})
+    g = fg.FakeGame(work / "noart", weidu, "", override={"8100.ini": b"[general]\r\n", **sprites},
+                    files=fg.eeex_files())
     shutil.copy(REPO / "setup-chriz-bg-playable-races.tp2", g.root)
-    shutil.copytree(MOD, g.root / MOD.name, ignore=shutil.ignore_patterns("weapons", "backup"))
+    shutil.copytree(MOD, g.root / MOD.name, ignore=shutil.ignore_patterns("weapons", "backup"), dirs_exist_ok=True)
     game_files = lambda: {k: v for k, v in g.tree().items()  # noqa: E731
                           if not k.startswith(("chriz-bg-playable-races/", "setup-chriz-bg-playable-races"))}
     before = game_files()
@@ -881,96 +885,6 @@ def race_row(work, weidu):
     return fails
 
 
-# --- The race choice in UI.MENU --------------------------------------------------------
-
-MENU_RACE = """menu
-{
-	name 'CHARGEN_RACE'
-	list
-	{
-		action "
-			if chargen.races[currentChargenRace] then
-				createCharScreen:OnRaceSelectButtonClick(chargen.races[currentChargenRace].id)
-			end
-			"
-		table "chargen.races"
-	}
-}
-""".replace("\n", "\r\n")
-MENU_OTHER = "menu\r\n{\r\n\tname 'START'\r\n}\r\n"
-RS_CALL = "createCharScreen:OnRaceSelectButtonClick("
-RS_DRY_TP2 = r"""LAF hg_route_race_select INT_VAR race = 111 template = 7 dry_run = 1 RET routed END
-PRINT ~RESULT RS %routed%~
-"""
-RS_TP2 = r"""LAF hg_route_race_select INT_VAR race = 111 template = 7 STR_VAR bio_map = ~[231709] = 900, [265365] = 900, ~
-  RET routed END
-PRINT ~RESULT RS %routed%~
-LAF hg_route_race_select INT_VAR race = 111 template = 7 STR_VAR bio_map = ~[1] = 2, ~ RET routed END
-PRINT ~RESULT RS %routed%~
-"""
-RS_PIECES = ("if id == 111 then", "id = 7", "pcall(cbprRaceBio)", "local chosen = 2", "chosen = 1",
-             'pcall(function() C:SetGlobal("CBPR_HOBGOBLIN_CHARGEN", "GLOBAL", chosen) end)',
-             "createCharScreen.OnRaceSelectButtonClick(createCharScreen, id)", "function cbprRaceBio()",
-             'if type(bioRaceData) ~= "table" then return end', "if e[1] == 111 then return end",
-             "if e[1] == 7 then base = e end", "local bio = {[231709] = 900, [265365] = 900, }",
-             "local e = {111}", "for i = 2, #base do e[i] = bio[base[i]] or base[i] end",
-             "table.insert(bioRaceData, e)")
-
-
-def routed_block(menu, text):
-    """The block appended to UI.MENU `menu` in `text`, line ends as LF, or None when the
-    text is not `menu` with every race selection call routed plus one block."""
-    routed = menu.replace(RS_CALL, "cbprRaceSelect(")
-    block = text[len(routed):].replace("\r\n", "\n")
-    # WeiDU writes the block with its own line ends (LF); UI.MENU keeps its own.
-    if not text.startswith(routed) or not block.startswith("\n`\n-- Chriz BG Playable Races") \
-            or not block.endswith("\nend\n`\n") or block.count("`") != 2 \
-            or text.count("function cbprRaceSelect(") != 1 or RS_CALL in text:
-        return None
-    return block
-
-
-@test
-def route_race_select(work, weidu):
-    """Every race selection call in UI.MENU (from a BIFF or override) goes through
-    cbprRaceSelect, added once to the end, which turns race 111 into race 7 and sets the
-    chargen global (1 for 111, 2 for any other race) without calling itself, and gives race 111
-    race 7's bioRaceData entry with the mapped biographies; a second call finds it routed and
-    adds nothing; a dry run tells the same and changes nothing; a UI.MENU without the call,
-    or none at all, stays as it is; uninstall restores UI.MENU."""
-    fails = []
-    for name, (where, menu, want) in {"biff": ("biff", MENU_RACE + MENU_OTHER, "1"),
-                                      "override": ("override", MENU_OTHER + MENU_RACE + MENU_RACE, "1"),
-                                      "other_ui": ("override", MENU_OTHER, "0"),
-                                      "no_menu": (None, None, "0")}.items():
-        res = {"UI.MENU": menu.encode("ascii")} if menu else {}
-        for dry in (True, False):
-            g = fg.FakeGame(work / f"rs_{name}{'_dry' if dry else ''}", weidu, RS_DRY_TP2 if dry else RS_TP2,
-                            biff=res if where == "biff" else None, override=res if where == "override" else None)
-            before = g.tree()
-            out = g.install()
-            got = g.results(out, "RS")
-            if not fg.installed_ok(out) or got != [want] * (1 if dry else 2):
-                fails.append(f"{name}{' dry' if dry else ''}: results {got}: {out[-600:]}")
-                continue
-            if dry or want == "0":
-                if g.tree() != before:
-                    fails.append(f"{name}{' dry' if dry else ''}: files changed")
-                continue
-            text = find_ci(g.root / "override", "ui.menu").read_bytes().decode("ascii")
-            block = routed_block(menu, text)
-            if block is None:
-                fails.append(f"{name}: UI.MENU {text[-900:]!r}")
-                continue
-            fails += [f"{name}: the block lacks {p!r}" for p in RS_PIECES if p not in block]
-            if "[1] = 2" in block:
-                fails.append(f"{name}: the second call changed the block")
-            g.uninstall()
-            if g.tree() != before:
-                fails.append(f"{name}: uninstall did not restore the files")
-    return fails
-
-
 # --- 2DA rows: lookup and copy ------------------------------------------------------------
 
 LK_TP2 = r"""COPY_EXISTING - ~racetext.2da~ ~override~
@@ -998,69 +912,11 @@ def lookup_2da(work, weidu):
     return [] if fg.installed_ok(out) and got == want else [f"{got}, want {want}: {out[-600:]}"]
 
 
-SB_TP2 = r"""LAF hg_race_skill_bonuses INT_VAR race = %d RET found RET_ARRAY bonuses END
-OUTER_SPRINT list ~~
-ACTION_PHP_EACH bonuses AS op => v BEGIN OUTER_SPRINT list ~%%list%% %%op%%=%%v%%~ END
-PRINT ~RESULT SB %%found%%%%list%%~
-"""
-SKILL_COLS = ["PICK_POCKETS", "OPEN_LOCKS", "FIND_TRAPS", "MOVE_SILENTLY", "HIDE_IN_SHADOWS", "DETECT_ILLUSION",
-              "SET_TRAPS"]
-SKILL_OPS = [92, 90, 91, 59, 275, 276, 277]
-SKILL_ROWS = [("HUMAN", ["15", "10", "5", "10", "5", "10", "0"]), ("HALF_ELF", ["25", "10", "5", "10", "10", "15", "0"]),
-              ("HALFORC", ["15", "10", "10", "10", "5", "5", "0"]), ("GNOME", ["15", "15", "15", "15", "10", "20", "5"])]
-
-
-def skill_bonuses(values):
-    return {op: int(v) for op, v in zip(SKILL_OPS, values) if int(v) != 0}
-
-
-@test
-def race_skill_bonuses(work, weidu):
-    """A player race's SKILLRAC row as the engine reads it: under the engine's own row names
-    (HALF_ELF, HALFORC), the label in any letter case, the skill columns in any order and
-    among others; values below 0 count, 0 does not. A missing row or column reads as the
-    table's default value. No table, or a race outside the seven, gives nothing, even with a
-    row of that race's name (the engine never reads it)."""
-    orc = ["15", "10", "10", "10", "5", "5", "0"]
-    order = [3, 0, 6, 2, 5, 1, 4]
-    shuffled = ["EXTRA"] + [SKILL_COLS[i] for i in order]
-    cases = {  # name: (race, table or None, found, bonuses)
-        "halforc": (7, fg.make_2da(SKILL_COLS, SKILL_ROWS, "0"), 1, skill_bonuses(orc)),
-        "human": (1, fg.make_2da(SKILL_COLS, SKILL_ROWS, "0"), 1, skill_bonuses(SKILL_ROWS[0][1])),
-        "half_elf": (3, fg.make_2da(SKILL_COLS, SKILL_ROWS, "0"), 1, skill_bonuses(SKILL_ROWS[1][1])),
-        "other_order": (7, fg.make_2da(shuffled, [(n, ["99"] + [v[i] for i in order]) for n, v in SKILL_ROWS], "0"), 1,
-                        skill_bonuses(orc)),
-        "lower_case": (7, fg.make_2da(SKILL_COLS, [("halforc", orc)], "0"), 1, skill_bonuses(orc)),
-        "negative": (7, fg.make_2da(SKILL_COLS, [("HALFORC", ["15", "10", "10", "-5", "5", "5", "0"])], "0"), 1,
-                     {92: 15, 90: 10, 91: 10, 59: -5, 275: 5, 276: 5}),
-        "no_row": (7, fg.make_2da(SKILL_COLS, SKILL_ROWS[:2], "0"), 0, {}),
-        "no_row_default": (7, fg.make_2da(SKILL_COLS, SKILL_ROWS[:2], "3"), 0, {op: 3 for op in SKILL_OPS}),
-        "no_column": (7, fg.make_2da(SKILL_COLS[:6], [(n, v[:6]) for n, v in SKILL_ROWS], "4"), 1,
-                      {**skill_bonuses(orc), 277: 4}),
-        "no_table": (7, None, 0, {}),
-        "race_111": (111, fg.make_2da(SKILL_COLS, SKILL_ROWS + [("HOBGOBLIN", orc)], "0"), 0, {}),
-    }
-    fails = []
-    for name, (race, table, found, want) in cases.items():
-        biff = {"SKILLRAC.2DA": table} if table is not None else {}
-        g = fg.FakeGame(work / f"sb_{name}", weidu, SB_TP2 % race, biff=biff)
-        out = g.install()
-        got = g.results(out, "SB")
-        if not fg.installed_ok(out) or len(got) != 1:
-            fails.append(f"{name}: {got}: {out[-600:]}")
-            continue
-        words = got[0].split()
-        bonuses = {int(w.split("=")[0]): int(w.split("=")[1]) for w in words[1:]}
-        if words[0] != str(found) or bonuses != want:
-            fails.append(f"{name}: found {words[0]}, bonuses {bonuses}; want {found}, {want}")
-    return fails
-
-
 # --- The race in character creation ---------------------------------------------------------
 
-OF_TP2 = r"""LAF hg_offer_race INT_VAR race = 111 template = 7 name_ref = 900 desc_ref = 901 upper_ref = 902
-  bio_ref = 903 STR_VAR label = ~HOBGOBLIN~ RET tables routed END
-PRINT ~RESULT OF %tables% %routed%~
+OF_TP2 = r"""LAF hg_offer_race INT_VAR race = 111 name_ref = 900 desc_ref = 901 upper_ref = 902 bio_ref = 903
+  STR_VAR label = ~HOBGOBLIN~ RET tables found END
+PRINT ~RESULT OF %tables% %found%~
 """
 OF_CAMPAIGN = fg.make_2da(["WORLDSCRIPT", "SAVE_DIR", "RACETEXT"],
                           [("SOA", ["BALDUR", "save", "RACETEXT"]), ("TOB", ["BALDUR25", "save", "RACETEXT"]),
@@ -1071,70 +927,614 @@ OF_CAMPAIGN_EMPTY = fg.make_2da(["WORLDSCRIPT", "SAVE_DIR", "CLASTEXT", "RACETEX
 
 
 def of_table(bio):
-    """A race table: human, half-orc (biography `bio`), tiefling (not offered)."""
-    return fg.make_2da(RACE_COLS, [("HUMAN", ["1", "10", "20", "30", "40"]), ("HALF_ORC", ["7", "16", "26", "36", bio]),
+    """A race table: human (biography `bio`), half-orc, tiefling (not offered)."""
+    return fg.make_2da(RACE_COLS, [("HUMAN", ["1", "10", "20", "30", bio]), ("HALF_ORC", ["7", "16", "26", "36", "46"]),
                                    ("TIEFLING", ["153", "17", "-1", "37", "-1"])])
 
 
 @test
 def offer_race(work, weidu):
     """The row goes into each race table the campaigns name (any letter case, once each) and
-    RACETEXT.2DA, if the game has them; its description only where UI.MENU can route the choice,
-    its biography only where the template race has one; the routed choice maps each of the
-    template's biographies to the race's own; with every table holding the race already, nothing
-    changes; uninstall restores the files."""
-    eet = {"CAMPAIGN.2DA": OF_CAMPAIGN, "RACETEXT.2DA": of_table("-1"), "BGRACTXT.2DA": of_table("231709"),
-           "SODRACE.2DA": of_table("265365")}
+    RACETEXT.2DA, if the game has them, with its description; its biography only where the human
+    has one. A table with a row for the race already gets none (counted as found, not as added);
+    uninstall restores the files."""
+    eet = {"CAMPAIGN.2DA": OF_CAMPAIGN, "RACETEXT.2DA": of_table("-1"), "BGRACTXT.2DA": of_table("215895"),
+           "SODRACE.2DA": of_table("265359")}
     taken = {t: fg.make_2da(RACE_COLS, [("HUMAN", ["1", "10", "20", "30", "40"]), ("HOB", ["111", "5", "6", "7", "8"])])
              for t in ("RACETEXT.2DA", "BGRACTXT.2DA", "SODRACE.2DA")}
-    menu = (MENU_RACE + MENU_OTHER).encode("ascii")
-    cases = {  # name: (resources, rows {table: (desc, bio)}, routed, biographies mapped)
-        "eet": ({**eet, "UI.MENU": menu}, {"RACETEXT": ("901", "-1"), "BGRACTXT": ("901", "903"),
-                                           "SODRACE": ("901", "903")}, "1", {"231709", "265365"}),
-        "vanilla": ({"CAMPAIGN.2DA": OF_CAMPAIGN_EMPTY, "RACETEXT.2DA": of_table("555"), "UI.MENU": menu},
-                    {"RACETEXT": ("901", "903")}, "1", {"555"}),
-        "no_campaign": ({"RACETEXT.2DA": of_table("-1"), "UI.MENU": menu}, {"RACETEXT": ("901", "-1")}, "1", set()),
-        "missing_table": ({k: v for k, v in eet.items() if k != "SODRACE.2DA"} | {"UI.MENU": menu},
-                          {"RACETEXT": ("901", "-1"), "BGRACTXT": ("901", "903")}, "1", {"231709"}),
-        "no_route": ({**eet, "UI.MENU": MENU_OTHER.encode("ascii")},
-                     {"RACETEXT": ("-1", "-1"), "BGRACTXT": ("-1", "903"), "SODRACE": ("-1", "903")}, "0", None),
-        "taken": ({"CAMPAIGN.2DA": OF_CAMPAIGN, **taken, "UI.MENU": menu}, {}, "0", None),
+    cases = {  # name: (resources, rows {table: biography}, tables found)
+        "eet": (eet, {"RACETEXT": "-1", "BGRACTXT": "903", "SODRACE": "903"}, 3),
+        "vanilla": ({"CAMPAIGN.2DA": OF_CAMPAIGN_EMPTY, "RACETEXT.2DA": of_table("555")}, {"RACETEXT": "903"}, 1),
+        "no_campaign": ({"RACETEXT.2DA": of_table("-1")}, {"RACETEXT": "-1"}, 1),
+        "missing_table": ({k: v for k, v in eet.items() if k != "SODRACE.2DA"},
+                          {"RACETEXT": "-1", "BGRACTXT": "903"}, 2),
+        "taken": ({"CAMPAIGN.2DA": OF_CAMPAIGN, **taken}, {}, 3),
     }
     fails = []
-    for name, (res, rows, routed, bios) in cases.items():
+    for name, (res, rows, found) in cases.items():
         g = fg.FakeGame(work / f"of_{name}", weidu, OF_TP2, biff=res)
         before = g.tree()
         out = g.install()
         got = g.results(out, "OF")
-        if not fg.installed_ok(out) or got != [f"{len(rows)} {routed}"]:
+        if not fg.installed_ok(out) or got != [f"{len(rows)} {found}"]:
             fails.append(f"{name}: results {got}: {out[-800:]}")
             continue
-        for t in ("RACETEXT", "BGRACTXT", "SODRACE"):
-            path = find_ci(g.root / "override", f"{t}.2da")
-            if t not in rows:
+        for tb in ("RACETEXT", "BGRACTXT", "SODRACE"):
+            path = find_ci(g.root / "override", f"{tb}.2da")
+            if tb not in rows:
                 if path is not None:
-                    fails.append(f"{name}: {t}.2DA was written")
+                    fails.append(f"{name}: {tb}.2DA was written")
                 continue
             _, body = fg.table(path.read_bytes()) if path else (None, {})
-            desc, bio = rows[t]
-            if body.get("HOBGOBLIN") != ["111", "900", desc, "902", bio]:
-                fails.append(f"{name}: {t} row {body.get('HOBGOBLIN')}")
-        ui = find_ci(g.root / "override", "ui.menu")
-        if routed == "1":
-            block = routed_block(menu.decode("ascii"), ui.read_bytes().decode("ascii")) if ui else None
-            mapped = None
-            if block and "local bio = {" in block:
-                fields = block.split("local bio = {", 1)[1].split("}", 1)[0]
-                mapped = {f.split("]")[0].strip("[ ") for f in fields.split(",") if f.strip()}
-                if any(f.split("=")[1].strip() != "903" for f in fields.split(",") if f.strip()):
-                    mapped = None
-            if mapped != bios:
-                fails.append(f"{name}: biographies mapped {mapped}, want {bios}")
-        elif ui is not None:
-            fails.append(f"{name}: UI.MENU was written")
+            if body.get("HOBGOBLIN") != ["111", "900", "901", "902", rows[tb]]:
+                fails.append(f"{name}: {tb} row {body.get('HOBGOBLIN')}")
         g.uninstall()
         if g.tree() != before:
             fails.append(f"{name}: uninstall did not restore the files")
+    return fails
+
+
+# --- Race tables, line by line ---------------------------------------------------------------
+
+def raw_2da(lines, eol="\r\n", final=True):
+    """A 2DA file from its lines as given (no padding), for layouts make_2da does not write."""
+    return (eol.join(lines) + (eol if final else "")).encode("ascii")
+
+
+def grid(data):
+    """A 2DA table as (default, column names, rows): each row label (upper case; the first row of
+    that label) with its entries by column name. A short row lacks the entries it does not have;
+    words beyond the header are left out."""
+    lines = data.decode("latin-1").splitlines()
+    cols = lines[2].split()
+    rows = {}
+    for ln in lines[3:]:
+        w = ln.split()
+        if w and w[0].upper() not in rows:
+            rows[w[0].upper()] = dict(zip(cols, w[1:]))
+    return (lines[1].split() or [""])[0], cols, rows
+
+
+def words_by_label(data):
+    """{row label as written: its other words} for each data line, and how many lines are blank."""
+    lines = data.decode("latin-1").splitlines()
+    return {ln.split()[0]: ln.split()[1:] for ln in lines[3:] if ln.split()}, sum(1 for ln in lines if not ln.split())
+
+
+RW_TP2 = r"""COPY_EXISTING ~test.2da~ ~override~
+  LPF cbpr_add_race_row STR_VAR label = ~HOBGOBLIN~ base = ~HALFORC~ values = ~%s~ RET added taken missing END
+  PATCH_PRINT ~RESULT RW %%added%% %%taken%% [%%missing%%]~
+BUT_ONLY
+"""
+AB_COLS = ["MOD_STR", "MOD_DEX", "MOD_CON", "MOD_INT", "MOD_WIS", "MOD_CHR"]
+AB_ROWS = [("HUMAN", ["0", "0", "0", "0", "0", "0"]), ("HALFORC", ["1", "0", "1", "-2", "0", "0"]),
+           ("DWARF", ["0", "-1", "1", "0", "0", "-1"])]
+
+
+@test
+def race_rows(work, weidu):
+    """The race's row goes to the end of the table, every other byte kept: each column gets the
+    value given for it (column names in any letter case and order, among other columns), else the
+    base row's entry (the first row of that label, in any letter case), else the default value
+    (also where the base row is short or missing); the line end follows the table's (CR LF or LF,
+    also without a final line end). Values for columns the table lacks are reported; a table with
+    a row of that label already stays as it was."""
+    vals = "MOD_CON=1 mod_wis=-1 MOD_CHR=-1"
+    want = ["HOBGOBLIN", "1", "0", "1", "-2", "-1", "-1"]
+    cases = {  # name: (table, values, result, words of the new last line, or None: unchanged)
+        "basic": (fg.make_2da(AB_COLS, AB_ROWS, "0"), vals, "1 0 []", want),
+        "other_order": (fg.make_2da(["EXTRA", "MOD_CHR", "MOD_STR", "MOD_DEX", "MOD_CON", "MOD_INT", "MOD_WIS"],
+                                    [("HUMAN", ["5", "0", "0", "0", "0", "0", "0"]),
+                                     ("halforc", ["7", "0", "1", "0", "1", "-2", "0"])], "0"),
+                        vals, "1 0 []", ["HOBGOBLIN", "7", "-1", "1", "0", "1", "-2", "-1"]),
+        "short_base": (raw_2da(["2DA V1.0", "9", "  " + " ".join(AB_COLS), "HUMAN 0 0 0 0 0 0", "HALFORC 1 0 1"]),
+                       vals, "1 0 []", ["HOBGOBLIN", "1", "0", "1", "9", "-1", "-1"]),
+        "no_base": (fg.make_2da(AB_COLS, AB_ROWS[:1], "0"), vals, "1 0 []",
+                    ["HOBGOBLIN", "0", "0", "1", "0", "-1", "-1"]),
+        "missing_column": (fg.make_2da(AB_COLS, AB_ROWS, "0"), vals + " MIN_CON=11", "1 0 [ MIN_CON]", want),
+        "lf_no_final_eol": (raw_2da(["2DA V1.0", "0", "  " + " ".join(AB_COLS), "HUMAN 0 0 0 0 0 0",
+                                     "HALFORC 1 0 1 -2 0 0"], eol="\n", final=False), vals, "1 0 []", want),
+        "header_only": (fg.make_2da(AB_COLS, [], "3"), vals, "1 0 []", ["HOBGOBLIN", "3", "3", "1", "3", "-1", "-1"]),
+        "taken": (fg.make_2da(AB_COLS, AB_ROWS + [("hobgoblin", ["9"] * 6)], "0"), vals, "0 1 []", None),
+    }
+    fails = []
+    for name, (table, values, result, words) in cases.items():
+        g = fg.FakeGame(work / f"rw_{name}", weidu, RW_TP2 % values, biff={"TEST.2DA": table})
+        out = g.install()
+        got = g.results(out, "RW")
+        path = find_ci(g.root / "override", "test.2da")
+        if not fg.installed_ok(out) or got != [result]:
+            fails.append(f"{name}: results {got}, want {result}: {out[-600:]}")
+        elif words is None:
+            if path is not None:
+                fails.append(f"{name}: the table was written")
+        else:
+            data = path.read_bytes() if path else b""
+            eol = b"\n" if name == "lf_no_final_eol" else b"\r\n"
+            head = table if table.endswith(b"\n") else table + eol
+            new = [ln.split() for ln in data.decode("latin-1").splitlines() if ln.split()][-1:]
+            if not data.startswith(head) or not data.endswith(eol) or (eol == b"\n" and b"\r" in data):
+                fails.append(f"{name}: other bytes or the line end changed: {data[-90:]!r}")
+            elif new != [words]:
+                fails.append(f"{name}: new row {new}, want {words}")
+    return fails
+
+
+CL_TP2 = r"""COPY_EXISTING ~test.2da~ ~override~
+  LPF cbpr_add_race_column STR_VAR label = ~HOBGOBLIN~ base = ~HALFORC~ values = ~%s~ RET added taken missing END
+  PATCH_PRINT ~RESULT CL %%added%% %%taken%% [%%missing%%]~
+BUT_ONLY
+"""
+CR_COLS = ["HUMAN", "ELF", "HALFORC"]
+CR_ROWS = [("MAGE", ["1", "1", "0"]), ("FIGHTER", ["1", "1", "1"]), ("SHADOWDANCER", ["1", "1", "1"]),
+           ("DUALCLASS", ["1", "0", "0"])]
+
+
+@test
+def race_columns(work, weidu):
+    """The race's column goes to the end of the header and of every row, the rest of each line
+    kept: each row gets the value given for it (row names in any letter case), else its entry in
+    the base column (the first of that name, wherever it is), else the default value. A short row
+    first gets the default value for each entry it lacks; a row longer than the header gets the
+    new entry right behind its last column; blank lines and LF line ends stay. Values for rows the
+    table lacks are reported; a table with a column of that name already stays as it was."""
+    vals = "dualclass=1 PALADIN=5"
+    cases = {  # name: (table, values, result, {row label: words after it}, or None: unchanged)
+        "basic": (fg.make_2da(CR_COLS, CR_ROWS, "0"), vals, "1 0 [ PALADIN]",
+                  {"MAGE": ["1", "1", "0", "0"], "FIGHTER": ["1", "1", "1", "1"],
+                   "SHADOWDANCER": ["1", "1", "1", "1"], "DUALCLASS": ["1", "0", "0", "1"]}),
+        "short_long_blank": (raw_2da(["2DA V1.0", "0", "  HUMAN ELF HALFORC", "MAGE 1 1 0", "", "PALADIN 1",
+                                      "MONK 1 1 1 9", "dualclass 1 0 0"], eol="\n"), vals, "1 0 []",
+                             {"MAGE": ["1", "1", "0", "0"], "PALADIN": ["1", "0", "0", "5"],
+                              "MONK": ["1", "1", "1", "1", "9"], "dualclass": ["1", "0", "0", "1"]}),
+        "base_elsewhere": (fg.make_2da(["CLASS", "HALFORC", "HUMAN"], [("16384", ["MAGE", "1", "1"]),
+                                                                      ("0x00000040", ["ABJURER", "0", "1"])], "1"),
+                           "", "1 0 []", {"16384": ["MAGE", "1", "1", "1"], "0x00000040": ["ABJURER", "0", "1", "0"]}),
+        "kit_tables": (fg.make_2da(CR_COLS, [("MAGE", ["K_M_H", "K_M_E", "K_M_HO"]),
+                                             ("THIEF", ["K_T_H", "K_T_E", "K_T_HO"])], "*"), "", "1 0 []",
+                       {"MAGE": ["K_M_H", "K_M_E", "K_M_HO", "K_M_HO"], "THIEF": ["K_T_H", "K_T_E", "K_T_HO", "K_T_HO"]}),
+        "no_base": (fg.make_2da(["HUMAN", "ELF"], [(n, v[:2]) for n, v in CR_ROWS], "0"), vals, "1 0 [ PALADIN]",
+                    {"MAGE": ["1", "1", "0"], "FIGHTER": ["1", "1", "0"], "SHADOWDANCER": ["1", "1", "0"],
+                     "DUALCLASS": ["1", "0", "1"]}),
+        "taken": (fg.make_2da(CR_COLS + ["hobgoblin"], [(n, v + ["1"]) for n, v in CR_ROWS], "0"), vals, "0 1 []", None),
+    }
+    fails = []
+    for name, (table, values, result, rows) in cases.items():
+        g = fg.FakeGame(work / f"cl_{name}", weidu, CL_TP2 % values, biff={"TEST.2DA": table})
+        out = g.install()
+        got = g.results(out, "CL")
+        path = find_ci(g.root / "override", "test.2da")
+        if not fg.installed_ok(out) or got != [result]:
+            fails.append(f"{name}: results {got}, want {result}: {out[-600:]}")
+            continue
+        if rows is None:
+            if path is not None:
+                fails.append(f"{name}: the table was written")
+            continue
+        data = path.read_bytes() if path else b""
+        old_lines, new_lines = table.decode("latin-1").splitlines(), data.decode("latin-1").splitlines()
+        body, blanks = words_by_label(data)
+        if new_lines[:2] != old_lines[:2] or new_lines[2].split() != old_lines[2].split() + ["HOBGOBLIN"]:
+            fails.append(f"{name}: head {new_lines[:3]}")
+        if body != rows or blanks != words_by_label(table)[1]:
+            fails.append(f"{name}: rows {body}, blank lines {blanks}")
+        if (b"\r" in data) != (b"\r" in table):
+            fails.append(f"{name}: line ends changed")
+    return fails
+
+
+EN_TP2 = r"""COPY_EXISTING - ~test.2da~ ~override~
+  LPF cbpr_2da_entry STR_VAR row = ~%s~ column = ~%s~ RET value found END
+  PATCH_PRINT ~RESULT EN %%found%% [%%value%%]~
+"""
+
+
+@test
+def entry_2da(work, weidu):
+    """An entry by row and column label, in any letter case; the default value where the row or
+    the column is missing (not found) or the row is too short (found)."""
+    table = raw_2da(["2DA V1.0", "7", "  OPEN_LOCKS FIND_TRAPS SET_TRAPS", "HUMAN 10 5 0", "GNOME 15 15",
+                     "HUMAN 99 99 99"])
+    asks = [("HUMAN", "OPEN_LOCKS"), ("human", "find_traps"), ("GNOME", "SET_TRAPS"), ("TIEFLING", "OPEN_LOCKS"),
+            ("HUMAN", "NOPE")]
+    want = ["1 [10]", "1 [5]", "1 [7]", "0 [7]", "0 [7]"]
+    g = fg.FakeGame(work / "en", weidu, "".join(EN_TP2 % a for a in asks), biff={"TEST.2DA": table})
+    out = g.install()
+    got = g.results(out, "EN")
+    return [] if fg.installed_ok(out) and got == want else [f"{got}, want {want}: {out[-600:]}"]
+
+
+# --- The engine code the race hook redirects ----------------------------------------------------
+
+def hook_pattern():
+    """The pattern the race hook's loader file gives."""
+    return re.search(r"^Pattern=([0-9A-Fa-f?]+)\s*$", (MOD / "race/CBPRRACE.db").read_text(encoding="ascii"),
+                     re.M).group(1)
+
+
+def code_of(pattern, fill=0x00, change=None):
+    """Bytes matching `pattern`: its wildcards filled with `fill`; `change` (index, byte) alters one."""
+    out = bytearray(fill if pattern[i:i + 2] == "??" else int(pattern[i:i + 2], 16)
+                    for i in range(0, len(pattern), 2))
+    if change:
+        out[change[0]] = change[1]
+    return bytes(out)
+
+
+def pe64(text, data=b"", text_exec=True):
+    """A minimal 64-bit PE file with two sections: .text (executable unless `text_exec` is False)
+    holding `text`, and .data holding `data`."""
+    opt = 0xF0
+    head = bytearray(0x400)
+    head[0:2] = b"MZ"
+    struct.pack_into("<I", head, 0x3C, 0x40)
+    head[0x40:0x44] = b"PE\0\0"
+    struct.pack_into("<HH", head, 0x44, 0x8664, 2)
+    struct.pack_into("<H", head, 0x54, opt)
+    struct.pack_into("<H", head, 0x58, 0x20B)
+    for i, (name, start, size, flags) in enumerate([(b".text", 0x400, len(text), 0x60000020 if text_exec else 0x40000040),
+                                                    (b".data", 0x400 + len(text), len(data), 0xC0000040)]):
+        o = 0x40 + 24 + opt + 40 * i
+        head[o:o + 8] = name.ljust(8, b"\0")
+        struct.pack_into("<IIII", head, o + 8, size, 0x1000 * (i + 1), size, start)
+        struct.pack_into("<I", head, o + 36, flags)
+    return bytes(head) + text + data
+
+
+CP_TP2 = r"""LAF cbpr_code_pattern_count STR_VAR exe = ~%s~ pattern = ~%s~ RET count offset error END
+PRINT ~RESULT CP %s %%count%% %%offset%% %%error%%~
+"""
+
+
+@test
+def code_pattern(work, weidu):
+    """The hook's pattern counts where all its fixed bytes match, whatever the wildcard bytes are
+    (also %, ~ and 0), in executable sections only, up to a section's end; one changed fixed byte
+    is no match. A pattern with %, ~ or 0 among its fixed bytes is still found. No file, a file
+    that is no 64-bit PE, a pattern that is not hex and ??, and one without 8 fixed bytes in a row
+    are told apart and count nothing."""
+    pat = hook_pattern()
+    code = code_of(pat)
+    pad = b"\xcc" * 48
+    special = "41424344257E464748494A4B4C4D4E4F2550??51"
+    files = {  # name: (file bytes or None, pattern, want "count offset error")
+        "once": (pe64(pad + code + pad), pat, f"1 {0x400 + 48} 0"),
+        "twice": (pe64(pad + code + pad + code), pat, f"2 {0x400 + 96 + len(code)} 0"),
+        "none": (pe64(pad * 3), pat, "0 -1 0"),
+        "near_miss": (pe64(code_of(pat, change=(len(code) - 1, 0xE0)) + pad + code), pat, f"1 {0x400 + len(code) + 48} 0"),
+        "wild_specials": (pe64(pad + code_of(pat, fill=0x25) + code_of(pat, fill=0x7E)), pat,
+                          f"2 {0x400 + 48 + len(code)} 0"),
+        "at_section_end": (pe64(pad + code, data=code[:8]), pat, f"1 {0x400 + 48} 0"),
+        "data_only": (pe64(pad, data=code), pat, "0 -1 0"),
+        "not_executable": (pe64(pad + code, text_exec=False), pat, "0 -1 0"),
+        "special_fixed": (pe64(pad + code_of(special) + pad), special, f"1 {0x400 + 48} 0"),
+        "no_file": (None, pat, "0 -1 1"),
+        "not_pe": (b"MZ" + bytes(2000), pat, "0 -1 2"),
+        "bad_pattern": (pe64(pad), "4053G0", "0 -1 3"),
+        "odd_pattern": (pe64(pad), "40534", "0 -1 3"),
+        "short_runs": (pe64(pad), "40534883EC20??410FB6C0488B??", "0 -1 4"),
+    }
+    g = fg.FakeGame(work / "cp", weidu, "".join(CP_TP2 % (f"cbprtest/{n}.exe", p, n) for n, (_, p, _) in files.items()))
+    for n, (data, _, _) in files.items():
+        if data is not None:
+            (g.root / f"cbprtest/{n}.exe").write_bytes(data)
+    out = g.install()
+    got = dict(r.split(" ", 1) for r in g.results(out, "CP"))
+    fails = [f"{n}: {got.get(n)}, want {w}" for n, (_, _, w) in files.items() if got.get(n) != w]
+    return fails if fg.installed_ok(out) else [f"install failed: {out[-800:]}"]
+
+
+# --- The race hook ----------------------------------------------------------------------------
+
+RG_TP2 = r"""LAF cbpr_register_race INT_VAR id = %d bio = 900 STR_VAR label = ~%s~ RET error END
+PRINT ~RESULT RG %%error%%~
+"""
+RG_COLS = ["ID", "BIOGRAPHY"]
+
+
+@test
+def register_race(work, weidu):
+    """The race goes into the hook's race list (made when there is none), and the hook's Lua and
+    pattern file into the game, byte for byte; a race listed already with the same label is not
+    listed twice. A race the hook cannot label (outside 8-255, or 153), a label that is not a word
+    of capital letters, digits and _, a race or label the list gives to another, and a list without
+    an ID column change nothing. Uninstall restores the game."""
+    other = fg.make_2da(RG_COLS, [("GOBLIN", ["161", "5"])])
+    cases = {  # name: (race list or None, id, label, error, rows wanted {label: [id, bio]})
+        "new": (None, 111, "HOBGOBLIN", "0", {"HOBGOBLIN": ["111", "900"]}),
+        "second_race": (other, 111, "HOBGOBLIN", "0", {"GOBLIN": ["161", "5"], "HOBGOBLIN": ["111", "900"]}),
+        "listed_already": (fg.make_2da(RG_COLS, [("HOBGOBLIN", ["111", "900"])]), 111, "HOBGOBLIN", "0",
+                           {"HOBGOBLIN": ["111", "900"]}),
+        "label_elsewhere": (fg.make_2da(RG_COLS, [("HOBGOBLIN", ["112", "5"])]), 111, "HOBGOBLIN", "3", None),
+        "race_elsewhere": (fg.make_2da(RG_COLS, [("HOB", ["111", "5"])]), 111, "HOBGOBLIN", "3", None),
+        "race_7": (None, 7, "HOBGOBLIN", "1", None),
+        "race_153": (None, 153, "HOBGOBLIN", "1", None),
+        "race_256": (None, 256, "HOBGOBLIN", "1", None),
+        "digits_underscore": (None, 112, "HOB_GOBLIN2", "0", {"HOB_GOBLIN2": ["112", "900"]}),
+        "lower_case": (None, 111, "Hobgoblin", "2", None),
+        "one_lower_letter": (None, 111, "HOBGOBLIn", "2", None),
+        "two_words": (None, 111, "HOB GOBLIN", "2", None),
+        "no_id_column": (fg.make_2da(["RACE", "BIOGRAPHY"], [("GOBLIN", ["161", "5"])]), 111, "HOBGOBLIN", "4", None),
+    }
+    fails = []
+    for name, (table, rid, label, error, rows) in cases.items():
+        g = fg.FakeGame(work / f"rg_{name}", weidu, RG_TP2 % (rid, label),
+                        override={"CBPRRACE.2DA": table} if table else None,
+                        files={"EEex_scripts/extra_pattern_dbs/v2.7.3.0.db": b"[X]\r\nPattern=90\r\n"})
+        before = g.tree()
+        out = g.install()
+        got = g.results(out, "RG")
+        if not fg.installed_ok(out) or got != [error]:
+            fails.append(f"{name}: results {got}, want {error}: {out[-600:]}")
+            continue
+        if rows is None:
+            if g.tree() != before:
+                fails.append(f"{name}: files changed")
+            continue
+        _, _, body = grid(g.read("override/CBPRRACE.2DA"))
+        if {k: [v.get("ID"), v.get("BIOGRAPHY")] for k, v in body.items()} != rows:
+            fails.append(f"{name}: race list {body}")
+        for src, dst in (("race/M_CBPRRC.lua", "override/M_CBPRRC.lua"),
+                         ("race/CBPRRACE.db", "EEex_scripts/extra_pattern_dbs/CBPRRACE.db")):
+            if not (g.root / dst).is_file() or g.read(dst) != (MOD / src).read_bytes():
+                fails.append(f"{name}: {dst} is not the mod's {src}")
+        g.uninstall()
+        if g.tree() != before:
+            fails.append(f"{name}: uninstall did not restore the game")
+    return fails
+
+
+@test
+def hook_files(work, weidu):
+    """The race hook's files agree: its Lua asks EEex's loader for the one label the pattern file
+    defines, the pattern file tells the loader not to cache addresses in it, the installer reads its
+    pattern, and every Lua function the world script calls is one the hook's Lua defines."""
+    db = (MOD / "race/CBPRRACE.db").read_text(encoding="ascii")
+    lua = (MOD / "race/M_CBPRRC.lua").read_text(encoding="utf-8")
+    baf = LOOK_BAF.read_text(encoding="ascii")
+    fails = []
+    labels = re.findall(r"^\[([^\]]+)\]", db, re.M)
+    if len(labels) != 1 or "NoCache=1" not in db.splitlines():
+        fails.append(f"pattern file: labels {labels}, NoCache=1 {'NoCache=1' in db.splitlines()}")
+    elif f'EEex_LabelDefault("{labels[0]}"' not in lua:
+        fails.append(f"the Lua does not ask for {labels[0]}")
+    called = set(re.findall(r'EEex_LuaTrigger\("return (\w+)\(', baf))
+    if not called:
+        fails.append("the world script calls no Lua")
+    fails += [f"the Lua does not define {fn}" for fn in sorted(called) if f"function {fn}(" not in lua]
+    g = fg.FakeGame(work / "hookfiles", weidu, "LAF cbpr_race_hook_pattern RET pattern END\nPRINT ~RESULT HP %pattern%~\n")
+    out = g.install()
+    if g.results(out, "HP") != [hook_pattern()]:
+        fails.append(f"the installer reads {g.results(out, 'HP')}")
+    return fails
+
+
+HO_TP2 = r"""LAF cbpr_race_hook_pattern STR_VAR folder = ~othermod/race~ RET pattern END
+PRINT ~RESULT HP %pattern%~
+LAF cbpr_register_race INT_VAR id = 120 bio = 5 STR_VAR label = ~ORC~ folder = ~othermod/race~ RET error END
+PRINT ~RESULT RG %error%~
+"""
+
+
+@test
+def hook_files_other_mod(work, weidu):
+    """Another mod ships the hook's files in a folder of its own: the installer reads the pattern
+    there and installs the hook's files from there, its race in the one race list."""
+    g = fg.FakeGame(work / "hookother", weidu, HO_TP2,
+                    override={"CBPRRACE.2DA": fg.make_2da(RG_COLS, [("HOBGOBLIN", ["111", "900"])])})
+    shutil.copytree(g.root / "chriz-bg-playable-races/race", g.root / "othermod/race")
+    shutil.rmtree(g.root / "chriz-bg-playable-races/race")
+    out = g.install()
+    if not fg.installed_ok(out) or g.results(out, "HP") != [hook_pattern()] or g.results(out, "RG") != ["0"]:
+        return [f"results {g.results(out, 'HP')} {g.results(out, 'RG')}: {out[-600:]}"]
+    fails = []
+    _, _, body = grid(g.read("override/CBPRRACE.2DA"))
+    if {k: [v.get("ID"), v.get("BIOGRAPHY")] for k, v in body.items()} != {"HOBGOBLIN": ["111", "900"],
+                                                                          "ORC": ["120", "5"]}:
+        fails.append(f"race list {body}")
+    for src, dst in (("race/M_CBPRRC.lua", "override/M_CBPRRC.lua"),
+                     ("race/CBPRRACE.db", "EEex_scripts/extra_pattern_dbs/CBPRRACE.db")):
+        if not (g.root / dst).is_file() or g.read(dst) != (MOD / src).read_bytes():
+            fails.append(f"{dst} is not the mod's {src}")
+    return fails
+
+
+# --- The hobgoblin's race tables (race.tpa) -----------------------------------------------------
+
+RQ_COLS = ["MIN_STR", "MAX_STR", "MIN_DEX", "MAX_DEX", "MIN_CON", "MAX_CON", "MIN_INT", "MAX_INT", "MIN_WIS",
+           "MAX_WIS", "MIN_CHR", "MAX_CHR"]
+SK_COLS = ["PICK_POCKETS", "OPEN_LOCKS", "FIND_TRAPS", "MOVE_SILENTLY", "HIDE_IN_SHADOWS", "DETECT_ILLUSION",
+           "SET_TRAPS"]
+RD_TABLES = {
+    "ABRACEAD.2DA": fg.make_2da(AB_COLS, AB_ROWS, "0"),
+    "ABRACERQ.2DA": fg.make_2da(RQ_COLS, [("HUMAN", ["3", "18"] * 6), ("HALFORC", ["3", "18"] * 6)], "0"),
+    "SKILLRAC.2DA": fg.make_2da(SK_COLS, [("HUMAN", ["15", "10", "5", "10", "5", "10", "0"]),
+                                          ("HALFORC", ["15", "10", "10", "10", "5", "5", "0"])], "0"),
+    "RACEFEAT.2DA": fg.make_2da(["VALUE"], [("ELF", ["1"]), ("HALFORC", ["1"]), ("GOBLIN", ["1"])], "0"),
+    "CLSRCREQ.2DA": fg.make_2da(CR_COLS, CR_ROWS, "0"),
+    "KITTABLE.2DA": fg.make_2da(CR_COLS, [("MAGE", ["K_M_H", "K_M_E", "K_M_HO"]), ("THIEF", ["K_T_H", "K_T_E", "K_T_HO"])], "*"),
+    "MGSRCREQ.2DA": fg.make_2da(["CLASS", "HUMAN", "HALFORC"], [("16384", ["MAGE", "1", "1"]),
+                                                               ("0x00000040", ["ABJURER", "1", "0"])], "1"),
+    "RACETHAC.2DA": fg.make_2da(["LABEL", "HUMAN", "ELF", "HALFORC"], [("89", ["BASTARDSWORD", "0", "0", "0"]),
+                                                                      ("90", ["LONGSWORD", "0", "1", "2"])], "0"),
+    "RACECOLR.2DA": fg.make_2da(["HUMAN", "HALFORC"], [("HAIR", ["2", "112"]), ("SKIN", ["12", "15"])], "12"),
+    "RACETEXT.2DA": fg.make_2da(RACE_COLS, [("HUMAN", ["1", "10", "20", "30", "40"]), ("HALF_ORC", ["7", "16", "26", "36", "46"])]),
+}
+RD_TP2 = r"""LOAD_TRA ~cbprtest/lang.tra~
+OUTER_SET race_hob = 111
+ACTION_DEFINE_ASSOCIATIVE_ARRAY hg_col BEGIN 3 => 19   6 => 7 END
+INCLUDE ~chriz-bg-playable-races/hobgoblin/race.tpa~
+"""
+# The hobgoblin's entries in RD_TABLES: (table, row or column label, {label: entry}).
+RD_WANT = [
+    ("ABRACEAD", "row", {"MOD_STR": "0", "MOD_DEX": "0", "MOD_CON": "1", "MOD_INT": "0", "MOD_WIS": "-1", "MOD_CHR": "-1"}),
+    ("ABRACERQ", "row", dict(zip(RQ_COLS, ["6", "18", "6", "18", "11", "18", "3", "18", "4", "18", "4", "18"]))),
+    ("SKILLRAC", "row", dict(zip(SK_COLS, ["15", "15", "10", "20", "10", "10", "0"]))),
+    ("RACEFEAT", "row", {"VALUE": "1"}),
+    ("CLSRCREQ", "column", {"MAGE": "0", "FIGHTER": "1", "SHADOWDANCER": "1", "DUALCLASS": "1"}),
+    ("KITTABLE", "column", {"MAGE": "K_M_HO", "THIEF": "K_T_HO"}),
+    ("MGSRCREQ", "column", {"16384": "1", "0X00000040": "0"}),
+    ("RACETHAC", "column", {"89": "0", "90": "2"}),
+    ("RACECOLR", "column", {"HAIR": "7", "SKIN": "19"}),
+]
+
+
+def race_data_game(work, weidu, name, tables):
+    g = fg.FakeGame(work / f"rd_{name}", weidu, RD_TP2, biff=tables)
+    (g.root / "chriz-bg-playable-races/hobgoblin").mkdir(parents=True)
+    shutil.copy(MOD / "hobgoblin/race.tpa", g.root / "chriz-bg-playable-races/hobgoblin/race.tpa")
+    shutil.copy(MOD / "lang/english/setup.tra", g.root / "cbprtest/lang.tra")
+    return g
+
+
+def race_data_problems(g, want):
+    problems = []
+    for table, kind, entries in want:
+        path = find_ci(g.root / "override", f"{table}.2da")
+        if path is None:
+            problems.append(f"{table}.2DA not written")
+            continue
+        _, cols, rows = grid(path.read_bytes())
+        got = rows.get("HOBGOBLIN", {}) if kind == "row" else \
+            {r: e.get("HOBGOBLIN") for r, e in rows.items() if r in entries}
+        if {k: got.get(k) for k in entries} != entries:
+            problems.append(f"{table}: {got}")
+    return problems
+
+
+@test
+def race_data(work, weidu):
+    """race.tpa gives HOBGOBLIN its entries in every race table the game has: the ability scores,
+    the human's thief skills plus the race's, infravision, the half-orc's classes and kits, mage
+    schools and racial THAC0 with dual-class allowed, and the hobgoblin's colours; a row in the race
+    list of character creation (the biography where the human has one) and in the hook's race list,
+    and the hook's files. Other mods' layouts work: columns in another order and other columns,
+    other races, short rows, LF line ends, missing optional tables. Uninstall restores the game."""
+    fails = []
+    variations = dict(RD_TABLES)
+    variations["ABRACEAD.2DA"] = fg.make_2da(["MOD_CHR", "MOD_WIS", "EXTRA", "MOD_INT", "MOD_CON", "MOD_DEX", "MOD_STR"],
+                                             [("HUMAN", ["0"] * 7), ("HALFORC", ["0", "0", "8", "-2", "1", "0", "1"])], "0")
+    variations["CLSRCREQ.2DA"] = raw_2da(["2DA V1.0", "0", "  HUMAN HALFORC TIEFLING ELF", "MAGE 1 1 1 1", "FIGHTER 1",
+                                          "SHADOWDANCER 1 1 1 1", "DUALCLASS 1 0 0 0"], eol="\n")
+    variations["RACEFEAT.2DA"] = fg.make_2da(["VALUE"], [("HALFORC", ["0"]), ("AASIMAR", ["1"])], "0")
+    for t in ("MGSRCREQ.2DA", "RACETHAC.2DA"):
+        del variations[t]
+    variations.update({"CAMPAIGN.2DA": OF_CAMPAIGN, "BGRACTXT.2DA": of_table("215895"), "SODRACE.2DA": of_table("-1")})
+    var_want = [w for w in RD_WANT if w[0] not in ("MGSRCREQ", "RACETHAC", "CLSRCREQ")]
+    var_want.append(("CLSRCREQ", "column", {"MAGE": "1", "FIGHTER": "0", "SHADOWDANCER": "1", "DUALCLASS": "1"}))
+    for name, tables, want, texts in (("base", RD_TABLES, RD_WANT, {"RACETEXT": True}),
+                                      ("variations", variations, var_want,
+                                       {"RACETEXT": True, "BGRACTXT": True, "SODRACE": False})):
+        g = race_data_game(work, weidu, name, tables)
+        before = g.tree()
+        out = g.install()
+        if not fg.installed_ok(out) or "WARNING" in out:
+            fails.append(f"{name}: {out[-900:]}")
+            continue
+        fails += [f"{name}: {p}" for p in race_data_problems(g, want)]
+        _, _, hook = grid(g.read("override/CBPRRACE.2DA"))
+        bio = hook.get("HOBGOBLIN", {}).get("BIOGRAPHY")
+        if hook.get("HOBGOBLIN", {}).get("ID") != "111" or not (bio or "").isdigit():
+            fails.append(f"{name}: hook race list {hook}")
+        for tb, with_bio in texts.items():
+            _, _, rows = grid(find_ci(g.root / "override", f"{tb}.2da").read_bytes())
+            row = rows.get("HOBGOBLIN", {})
+            if row.get("ID") != "111" or not all(row.get(c, "").isdigit() for c in ("NAME", "DESCSTR", "UPPERCASE")) \
+                    or row.get("BIOGRAPHY") != (bio if with_bio else "-1"):
+                fails.append(f"{name}: {tb} row {row}")
+        if not (g.root / "override/M_CBPRRC.lua").is_file() or \
+                not (g.root / "EEex_scripts/extra_pattern_dbs/CBPRRACE.db").is_file():
+            fails.append(f"{name}: the hook's files are missing")
+        g.uninstall()
+        if g.tree() != before:
+            fails.append(f"{name}: uninstall did not restore the game")
+    return fails
+
+
+@test
+def race_data_refused(work, weidu):
+    """race.tpa stops, and the game is left as it was, where the race cannot work as described:
+    a table of the ability scores without a column the race sets, a table with a HOBGOBLIN entry
+    of another mod, a race list with a row for race 111 already. A lesser table without an entry the
+    race sets (no DUALCLASS row) only warns."""
+    rq = fg.make_2da([c for c in RQ_COLS if "CON" not in c], [("HALFORC", ["3", "18"] * 5)], "0")
+    kits = fg.make_2da(CR_COLS + ["HOBGOBLIN"], [("MAGE", ["K_M_H", "K_M_E", "K_M_HO", "K_M_X"])], "*")
+    text = fg.make_2da(RACE_COLS, [("HUMAN", ["1", "10", "20", "30", "40"]), ("HOB", ["111", "5", "6", "7", "8"])])
+    cases = {  # name: (table replaced, its bytes, text wanted in the output, installed with a warning)
+        "ability_column": ("ABRACERQ.2DA", rq, "ABRACERQ.2DA lacks MIN_CON MAX_CON", False),
+        "taken": ("KITTABLE.2DA", kits, "KITTABLE.2DA has a HOBGOBLIN entry already", False),
+        "race_text": ("RACETEXT.2DA", text, "has a row for race 111 or for HOBGOBLIN already", False),
+        "no_dualclass": ("CLSRCREQ.2DA", fg.make_2da(CR_COLS, CR_ROWS[:3], "0"), "CLSRCREQ.2DA lacks DUALCLASS", True),
+    }
+    fails = []
+    for name, (table, data, text, warns) in cases.items():
+        g = race_data_game(work, weidu, f"x_{name}", {**RD_TABLES, table: data})
+        before = g.tree()
+        out = g.install()
+        if text not in out:
+            fails.append(f"{name}: no message {text!r}: {out[-700:]}")
+        if warns:
+            if "INSTALLED WITH WARNINGS" not in out:
+                fails.append(f"{name}: not installed with a warning")
+            g.uninstall()
+        elif not fg.failed(out):
+            fails.append(f"{name}: not stopped")
+        if g.tree() != before:
+            fails.append(f"{name}: game files changed")
+    return fails
+
+
+# --- The component's checks before it changes anything --------------------------------------------
+
+def component_game(work, weidu, name, files=None, biff=None):
+    """A fake game with the hobgoblin's sprites and the whole mod, for the real tp2."""
+    sprites = {n: creature_bam()[0] for n in ("mhobg1.bam", "mhobsg1.bam", "mhobbg1.bam")}
+    g = fg.FakeGame(work / name, weidu, "", override={"8100.ini": b"[general]\r\n", **sprites}, files=files, biff=biff)
+    shutil.copy(REPO / "setup-chriz-bg-playable-races.tp2", g.root)
+    shutil.copytree(MOD, g.root / MOD.name, ignore=shutil.ignore_patterns("backup"), dirs_exist_ok=True)
+    return g
+
+
+def install_component(g, tag):
+    proc = subprocess.run([g.weidu, "setup-chriz-bg-playable-races.tp2", "--no-auto-tp2", "--noautoupdate",
+                           "--game", str(g.root), "--language", "0", "--use-lang", "en_US", "--force-install", "100",
+                           "--no-exit-pause", "--log", f"weidu-{tag}.debug"],
+                          cwd=g.root, stdin=subprocess.DEVNULL, capture_output=True, timeout=180)
+    return (proc.stdout + proc.stderr).decode("utf-8", "replace")
+
+
+@test
+def component_checks(work, weidu):
+    """The component needs EEex with the race hook's functions, pattern folder and script trigger,
+    a race number the hook can label, and the engine code the hook redirects exactly once in
+    Baldur.exe; without one of them it is not installed and no game file changes."""
+    ids = {"RACE.IDS": b"IDS V1.0\r\n1 HUMAN\r\n111 HOBGOBLIN\r\n"}
+    code = code_of(hook_pattern())
+    good_exe = {"Baldur.exe": pe64(b"\xcc" * 32 + code + b"\xcc" * 32)}
+    cases = {  # name: (files, biff, text wanted in the output)
+        "no_eeex": ({}, ids, "which this game lacks. Install EEex"),
+        "no_trigger": (fg.eeex_files(trigger=False), ids, "the script trigger EEex_LuaTrigger"),
+        "no_functions": (fg.eeex_files(functions=False), ids, "the script trigger EEex_LuaTrigger"),
+        "no_exe": (fg.eeex_files(), ids, "found 0 time(s), check 1"),
+        "exe_without_code": ({**fg.eeex_files(), "Baldur.exe": pe64(b"\xcc" * 64)}, ids, "found 0 time(s), check 0"),
+        "code_twice": ({**fg.eeex_files(), "Baldur.exe": pe64(code + code)}, ids, "found 2 time(s), check 0"),
+        "race_153": ({**fg.eeex_files(), **good_exe}, {"RACE.IDS": b"IDS V1.0\r\n153 HOBGOBLIN\r\n"},
+                     "gives HOBGOBLIN the number 153"),
+    }
+    fails = []
+    for name, (files, biff, text) in cases.items():
+        g = component_game(work, weidu, f"cc_{name}", files=files, biff=biff)
+        game_files = lambda: {k: v for k, v in g.tree().items()  # noqa: E731
+                              if not k.startswith(("chriz-bg-playable-races/", "setup-chriz-bg-playable-races"))}
+        before = game_files()
+        out = install_component(g, name)
+        log = g.root / "weidu.log"
+        if text not in out:
+            fails.append(f"{name}: no message {text!r}: {out[-700:]}")
+        if log.is_file() and "chriz-bg-playable-races" in log.read_text(encoding="latin-1").lower():
+            fails.append(f"{name}: the component is in WeiDU.log")
+        if game_files() != before:
+            fails.append(f"{name}: game files changed")
     return fails
 
 

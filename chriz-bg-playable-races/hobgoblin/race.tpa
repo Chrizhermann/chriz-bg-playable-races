@@ -1,0 +1,95 @@
+// Race HOBGOBLIN of its own (included by hobgoblin.tpa, which sets race_hob, the hobgoblin's
+// race ID, and hg_col, its colours). The engine reads a race's rules from its race tables under
+// the race's label, and only its seven standard races have one; the mod's EEex hook
+// (lib/race_functions.tpa, race/M_CBPRRC.lua) gives race HOBGOBLIN the label HOBGOBLIN, and the
+// tables below get HOBGOBLIN entries. The values: the hobgoblin of AD&D 2nd edition's The Complete
+// Book of Humanoids, with Chris's changes (docs/hobgoblin.md, decided 2026-10-19).
+
+// Ability scores. ABRACERQ gives the range of the roll, and ABRACEAD is added to it: STR and DEX
+// 6-18, CON 12-19, INT 3-18, WIS 3-17, CHA 3-17.
+OUTER_SPRINT $hg_values(~ABRACEAD~) ~MOD_STR=0 MOD_DEX=0 MOD_CON=1 MOD_INT=0 MOD_WIS=-1 MOD_CHR=-1~
+OUTER_SPRINT $hg_values(~ABRACERQ~) ~MIN_STR=6 MAX_STR=18 MIN_DEX=6 MAX_DEX=18 MIN_CON=11 MAX_CON=18 MIN_INT=3 MAX_INT=18 MIN_WIS=4 MAX_WIS=18 MIN_CHR=4 MAX_CHR=18~
+// Thief skills: the human's, plus these.
+ACTION_DEFINE_ASSOCIATIVE_ARRAY hg_skill_plus BEGIN
+  OPEN_LOCKS => 5   FIND_TRAPS => 5   MOVE_SILENTLY => 10   HIDE_IN_SHADOWS => 5
+END
+OUTER_SPRINT hg_skills ~~
+ACTION_IF FILE_EXISTS_IN_GAME ~skillrac.2da~ BEGIN
+  COPY_EXISTING - ~skillrac.2da~ ~override~
+    PHP_EACH hg_skill_plus AS skill => plus BEGIN
+      LPF cbpr_2da_entry STR_VAR row = ~HUMAN~ column = EVAL ~%skill%~ RET value END
+      PATCH_IF (IS_AN_INT ~%value%~) BEGIN
+        SET v = value + plus
+        SPRINT hg_skills ~%hg_skills% %skill%=%v%~
+      END
+    END
+END
+OUTER_SPRINT $hg_values(~SKILLRAC~) ~%hg_skills%~
+// Infravision.
+OUTER_SPRINT $hg_values(~RACEFEAT~) ~VALUE=1~
+// Classes and kits, mage schools and racial THAC0 bonuses: the half-orc's in this game, so the
+// hobgoblin follows what this game's mods allow half-orcs; dual-class allowed.
+OUTER_SPRINT $hg_values(~CLSRCREQ~) ~DUALCLASS=1~
+OUTER_SPRINT $hg_values(~KITTABLE~) ~~
+OUTER_SPRINT $hg_values(~MGSRCREQ~) ~~
+OUTER_SPRINT $hg_values(~RACETHAC~) ~~
+// Character creation's default skin and hair colours: the hobgoblin's.
+OUTER_SET hg_skin = $hg_col(~3~)
+OUTER_SET hg_hair = $hg_col(~6~)
+OUTER_SPRINT $hg_values(~RACECOLR~) ~SKIN=%hg_skin% HAIR=%hg_hair%~
+
+// Each table: races as rows (0) or columns (1); the entries the race does not set come from base
+// (the human's thief skills, else the half-orc's). Tables marked strict stop the install when
+// they lack a column the race sets: the race would roll its ability scores without its limits.
+ACTION_DEFINE_ASSOCIATIVE_ARRAY hg_race_table BEGIN
+  ABRACEAD => 0   ABRACERQ => 0   SKILLRAC => 0   RACEFEAT => 0
+  CLSRCREQ => 1   KITTABLE => 1   MGSRCREQ => 1   RACETHAC => 1   RACECOLR => 1
+END
+ACTION_DEFINE_ASSOCIATIVE_ARRAY hg_race_table_strict BEGIN
+  ABRACEAD => 1   ABRACERQ => 1
+END
+OUTER_SPRINT hg_race_done ~~
+ACTION_PHP_EACH hg_race_table AS hg_table => hg_columns BEGIN
+  OUTER_SPRINT hg_base ~HALFORC~
+  ACTION_IF (~%hg_table%~ STRING_EQUAL ~SKILLRAC~) BEGIN
+    OUTER_SPRINT hg_base ~HUMAN~
+  END
+  OUTER_SPRINT hg_v $hg_values(~%hg_table%~)
+  LAF cbpr_race_table INT_VAR columns = hg_columns
+    STR_VAR table = EVAL ~%hg_table%~ label = ~HOBGOBLIN~ base = EVAL ~%hg_base%~ values = EVAL ~%hg_v%~
+    RET hg_result = result hg_missing = missing END
+  OUTER_SET hg_strict = VARIABLE_IS_SET EVAL ~hg_race_table_strict_%hg_table%~
+  ACTION_IF (hg_result = 3) BEGIN
+    OUTER_SPRINT hg_missing ~ its header line~
+  END
+  ACTION_IF (hg_result = 2) BEGIN
+    FAIL @28
+  END ELSE ACTION_IF (NOT (~%hg_missing%~ STRING_EQUAL ~~)) AND hg_strict BEGIN
+    FAIL @29
+  END ELSE ACTION_IF NOT (~%hg_missing%~ STRING_EQUAL ~~) BEGIN
+    WARN @30
+  END
+  ACTION_IF (hg_result = 0) BEGIN
+    OUTER_SPRINT hg_race_done ~%hg_race_done% %hg_table%~
+  END
+END
+
+// The race in character creation: a row in every race table the campaigns use, with the race's
+// description and biography. A row for race 111 or HOBGOBLIN of another mod there would show
+// another race's texts for this one.
+OUTER_SET hg_bio_ref = RESOLVE_STR_REF (@13)
+LAF hg_offer_race INT_VAR race = race_hob name_ref = RESOLVE_STR_REF (@12) desc_ref = RESOLVE_STR_REF (@11)
+                          upper_ref = RESOLVE_STR_REF (@10) bio_ref = hg_bio_ref
+  STR_VAR label = ~HOBGOBLIN~
+  RET hg_text_tables = tables hg_text_found = found
+END
+ACTION_IF (hg_text_found = 0) OR (hg_text_tables < hg_text_found) BEGIN
+  FAIL @17
+END
+
+// The label, through the hook.
+LAF cbpr_register_race INT_VAR id = race_hob bio = hg_bio_ref STR_VAR label = ~HOBGOBLIN~ RET hg_register = error END
+ACTION_IF (hg_register != 0) BEGIN
+  FAIL @32
+END
+PRINT ~Hobgoblin PC: race %race_hob% HOBGOBLIN in the race tables%hg_race_done%, in %hg_text_tables% race list(s) of character creation~
