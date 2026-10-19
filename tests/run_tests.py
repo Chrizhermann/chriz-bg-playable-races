@@ -1361,11 +1361,13 @@ RD_TABLES = {
     "RACETEXT.2DA": fg.make_2da(RACE_COLS, [("HUMAN", ["1", "10", "20", "30", "40"]), ("HALF_ORC", ["7", "16", "26", "36", "46"])]),
 }
 RD_TP2 = r"""LOAD_TRA ~cbprtest/lang.tra~
+OUTER_SPRINT hg_rules ~%s~
 OUTER_SET race_hob = 111
 ACTION_DEFINE_ASSOCIATIVE_ARRAY hg_col BEGIN 3 => 19   6 => 7 END
 INCLUDE ~chriz-bg-playable-races/hobgoblin/race.tpa~
 """
-# The hobgoblin's entries in RD_TABLES: (table, row or column label, {label: entry}).
+# The hobgoblin's entries in RD_TABLES with the stronger rules: (table, row or column label,
+# {label: entry}). The book's rules differ only in the ability scores (RD_BOOK).
 RD_WANT = [
     ("ABRACEAD", "row", {"MOD_STR": "0", "MOD_DEX": "0", "MOD_CON": "1", "MOD_INT": "0", "MOD_WIS": "-1", "MOD_CHR": "-1"}),
     ("ABRACERQ", "row", dict(zip(RQ_COLS, ["6", "18", "6", "18", "11", "18", "3", "18", "4", "18", "4", "18"]))),
@@ -1377,10 +1379,22 @@ RD_WANT = [
     ("RACETHAC", "column", {"89": "0", "90": "2"}),
     ("RACECOLR", "column", {"HAIR": "7", "SKIN": "19"}),
 ]
+RD_BOOK = [
+    ("ABRACEAD", "row", {"MOD_STR": "0", "MOD_DEX": "0", "MOD_CON": "0", "MOD_INT": "0", "MOD_WIS": "0", "MOD_CHR": "-1"}),
+    ("ABRACERQ", "row", dict(zip(RQ_COLS, ["6", "18", "6", "18", "5", "18", "3", "18", "3", "18", "4", "18"]))),
+] + RD_WANT[2:]
+# The race description of each version (@N in setup.tra) and the trait line that tells them apart.
+RD_DESC = {"strong": (11, "+1 Constitution, -1 Wisdom, -1 Charisma."), "book": (14, "\u2022 -1 Charisma.\n")}
 
 
-def race_data_game(work, weidu, name, tables):
-    g = fg.FakeGame(work / f"rd_{name}", weidu, RD_TP2, biff=tables)
+def tra_string(n):
+    """@n of the English language file, line ends as WeiDU writes them into dialog.tlk (LF)."""
+    text = (MOD / "lang/english/setup.tra").read_text(encoding="utf-8")
+    return re.search(r"@%d\s*=\s*~([^~]*)~" % n, text).group(1).replace("\r\n", "\n")
+
+
+def race_data_game(work, weidu, name, tables, rules="strong"):
+    g = fg.FakeGame(work / f"rd_{name}", weidu, RD_TP2 % rules, biff=tables)
     (g.root / "chriz-bg-playable-races/hobgoblin").mkdir(parents=True)
     shutil.copy(MOD / "hobgoblin/race.tpa", g.root / "chriz-bg-playable-races/hobgoblin/race.tpa")
     shutil.copy(MOD / "lang/english/setup.tra", g.root / "cbprtest/lang.tra")
@@ -1404,12 +1418,14 @@ def race_data_problems(g, want):
 
 @test
 def race_data(work, weidu):
-    """race.tpa gives HOBGOBLIN its entries in every race table the game has: the ability scores,
-    the human's thief skills plus the race's, infravision, the half-orc's classes and kits, mage
-    schools and racial THAC0 with dual-class allowed, and the hobgoblin's colours; a row in the race
-    list of character creation (the biography where the human has one) and in the hook's race list,
-    and the hook's files. Other mods' layouts work: columns in another order and other columns,
-    other races, short rows, LF line ends, missing optional tables. Uninstall restores the game."""
+    """race.tpa gives HOBGOBLIN its entries in every race table the game has: the ability scores
+    of the rules version the tp2 chose (the book's or the stronger one), the human's thief skills
+    plus the race's, infravision, the half-orc's classes and kits, mage schools and racial THAC0 with
+    dual-class allowed, and the hobgoblin's colours; a row in the race list of character creation
+    with the version's own description (the biography where the human has one) and in the hook's
+    race list, and the hook's files. Other mods' layouts work: columns in another order and other
+    columns, other races, short rows, LF line ends, missing optional tables. Uninstall restores the
+    game."""
     fails = []
     variations = dict(RD_TABLES)
     variations["ABRACEAD.2DA"] = fg.make_2da(["MOD_CHR", "MOD_WIS", "EXTRA", "MOD_INT", "MOD_CON", "MOD_DEX", "MOD_STR"],
@@ -1422,10 +1438,11 @@ def race_data(work, weidu):
     variations.update({"CAMPAIGN.2DA": OF_CAMPAIGN, "BGRACTXT.2DA": of_table("215895"), "SODRACE.2DA": of_table("-1")})
     var_want = [w for w in RD_WANT if w[0] not in ("MGSRCREQ", "RACETHAC", "CLSRCREQ")]
     var_want.append(("CLSRCREQ", "column", {"MAGE": "1", "FIGHTER": "0", "SHADOWDANCER": "1", "DUALCLASS": "1"}))
-    for name, tables, want, texts in (("base", RD_TABLES, RD_WANT, {"RACETEXT": True}),
-                                      ("variations", variations, var_want,
-                                       {"RACETEXT": True, "BGRACTXT": True, "SODRACE": False})):
-        g = race_data_game(work, weidu, name, tables)
+    for name, rules, tables, want, texts in (("base", "strong", RD_TABLES, RD_WANT, {"RACETEXT": True}),
+                                             ("book", "book", RD_TABLES, RD_BOOK, {"RACETEXT": True}),
+                                             ("variations", "strong", variations, var_want,
+                                              {"RACETEXT": True, "BGRACTXT": True, "SODRACE": False})):
+        g = race_data_game(work, weidu, name, tables, rules)
         before = g.tree()
         out = g.install()
         if not fg.installed_ok(out) or "WARNING" in out:
@@ -1442,6 +1459,12 @@ def race_data(work, weidu):
             if row.get("ID") != "111" or not all(row.get(c, "").isdigit() for c in ("NAME", "DESCSTR", "UPPERCASE")) \
                     or row.get("BIOGRAPHY") != (bio if with_bio else "-1"):
                 fails.append(f"{name}: {tb} row {row}")
+                continue
+            desc_n, trait = RD_DESC[rules]
+            tlk = fg.tlk_entries(g.read("lang/en_us/dialog.tlk"))
+            desc = tlk[int(row["DESCSTR"])][0] if int(row["DESCSTR"]) < len(tlk) else None
+            if desc != tra_string(desc_n) or trait not in desc:
+                fails.append(f"{name}: {tb} description is not @{desc_n}: {desc!r:.120}")
         if not (g.root / "override/M_CBPRRC.lua").is_file() or \
                 not (g.root / "EEex_scripts/extra_pattern_dbs/CBPRRACE.db").is_file():
             fails.append(f"{name}: the hook's files are missing")
@@ -1495,9 +1518,10 @@ def component_game(work, weidu, name, files=None, biff=None):
     return g
 
 
-def install_component(g, tag):
+def install_component(g, tag, component=100):
     proc = subprocess.run([g.weidu, "setup-chriz-bg-playable-races.tp2", "--no-auto-tp2", "--noautoupdate",
-                           "--game", str(g.root), "--language", "0", "--use-lang", "en_US", "--force-install", "100",
+                           "--game", str(g.root), "--language", "0", "--use-lang", "en_US",
+                           "--force-install", str(component),
                            "--no-exit-pause", "--log", f"weidu-{tag}.debug"],
                           cwd=g.root, stdin=subprocess.DEVNULL, capture_output=True, timeout=180)
     return (proc.stdout + proc.stderr).decode("utf-8", "replace")
@@ -1522,12 +1546,15 @@ def component_checks(work, weidu):
                      "gives HOBGOBLIN the number 153"),
     }
     fails = []
-    for name, (files, biff, text) in cases.items():
+    # Both versions of the component; the second only where its own checks act (EEex, script trigger).
+    runs = [(name, case, 100) for name, case in cases.items()] + \
+           [(f"{name}_101", cases[name], 101) for name in ("no_eeex", "no_trigger")]
+    for name, (files, biff, text), component in runs:
         g = component_game(work, weidu, f"cc_{name}", files=files, biff=biff)
         game_files = lambda: {k: v for k, v in g.tree().items()  # noqa: E731
                               if not k.startswith(("chriz-bg-playable-races/", "setup-chriz-bg-playable-races"))}
         before = game_files()
-        out = install_component(g, name)
+        out = install_component(g, name, component)
         log = g.root / "weidu.log"
         if text not in out:
             fails.append(f"{name}: no message {text!r}: {out[-700:]}")
@@ -1535,6 +1562,39 @@ def component_checks(work, weidu):
             fails.append(f"{name}: the component is in WeiDU.log")
         if game_files() != before:
             fails.append(f"{name}: game files changed")
+    return fails
+
+
+@test
+def rule_versions(work, weidu):
+    """The tp2 offers the race in two versions of one component, of which a player installs one:
+    100 the book's rules and 101 the stronger ones. Both carry the same checks and build the same
+    hobgoblin; each sets only its rules version for race.tpa."""
+    text = (REPO / "setup-chriz-bg-playable-races.tp2").read_text(encoding="latin-1").replace("\r\n", "\n")
+    parts = re.split(r"^BEGIN\b", text, flags=re.M)[1:]
+    fails, found = [], {}
+    for part in parts:
+        m = re.match(r"\s+@\d+\s+DESIGNATED\s+(\d+)\s*\n", part)
+        if not m:
+            fails.append(f"a component without DESIGNATED: {part[:60]!r}")
+            continue
+        rules = re.findall(r"^OUTER_SPRINT hg_rules ~(\w+)~$", part, re.M)
+        group = re.findall(r"^SUBCOMPONENT\s+(@\d+)", part, re.M)
+        checks = "".join(re.findall(r"^REQUIRE_PREDICATE.*?@\d+\n", part, re.M | re.S))
+        includes = re.findall(r"^INCLUDE ~([^~]+)~", part, re.M)
+        found[m.group(1)] = (rules, group, checks, includes)
+    if sorted(found) != ["100", "101"]:
+        fails.append(f"components {sorted(found)}")
+        return fails
+    book, strong = found["100"], found["101"]
+    if book[0] != ["book"] or strong[0] != ["strong"]:
+        fails.append(f"rules {book[0]} {strong[0]}")
+    if not book[1] or book[1] != strong[1]:
+        fails.append(f"subcomponent groups {book[1]} {strong[1]}")
+    if not book[2] or book[2] != strong[2]:
+        fails.append("the two versions check different things")
+    if book[3] != ["chriz-bg-playable-races/hobgoblin/hobgoblin.tpa"] or strong[3] != book[3]:
+        fails.append(f"includes {book[3]} {strong[3]}")
     return fails
 
 

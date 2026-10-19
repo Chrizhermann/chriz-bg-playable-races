@@ -6,9 +6,11 @@
   own rules, read from the race tables under the label `HOBGOBLIN`. An EEex hook
   (`race/M_CBPRRC.lua`, found through `race/CBPRRACE.db`) makes the engine give race 111 that
   label; without it the engine has labels for its seven races only. **Needs EEex** (lab: v1.2.0).
-- The race's rules (The Complete Book of Humanoids, with Chris's changes; decided 2026-10-19):
-  +1 Constitution, -1 Wisdom, -1 Charisma; Constitution 12-19, Strength and Dexterity at least 6;
-  infravision; the human's thief skills with +5% Open Locks, +5% Find Traps, +10% Move Silently,
+- The race's rules (The Complete Book of Humanoids, with Chris's changes; decided 2026-10-19 and
+  2026-10-20), in two versions, one to install: component 100 the book's ability scores (-1
+  Charisma; Strength and Dexterity at least 6, Constitution at least 5), component 101 stronger
+  ones (+1 Constitution, -1 Wisdom, -1 Charisma; Constitution 12-19, Strength and Dexterity at
+  least 6). Both: infravision; the human's thief skills with +5% Open Locks, +5% Find Traps, +10% Move Silently,
   +5% Hide in Shadows; the half-orc's classes, kits, mage schools and racial to-hit bonuses as
   the installed game has them (with a mod that opens all classes to all races, all of them);
   dual-class allowed; +1 to hit against elves (`op178`).
@@ -16,7 +18,7 @@
   a character animation (character creation gives the race the human's) the hobgoblin's look and
   the race's spell effects (`HGPCRACE`). Every party member of race HOBGOBLIN gets them, not only
   the protagonist.
-- Removed: component 101 (human rules), the template race, the routed race choice in `UI.MENU`
+- Removed: v0.2's component 101 (human rules; the number now names the stronger version), the template race, the routed race choice in `UI.MENU`
   (no `UI.MENU` change anymore), the transformation at game start (`HGPCXNOW`) and the ability
   handed out to protagonists (`HGPCGIVE`).
 - Saves from v0.1 and v0.2: a protagonist made a hobgoblin keeps race 111 and now gets the race's

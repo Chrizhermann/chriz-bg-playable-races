@@ -13,19 +13,27 @@ tests.
 
 | Component | Label | Purpose |
 |---:|---|---|
-| 100 | `cbpr_hobgoblin_protagonist` | [Hobgoblin protagonist](docs/hobgoblin.md): the hobgoblin as a race of its own (needs EEex) |
+| 100 | `cbpr_hobgoblin_book` | [Hobgoblin protagonist](docs/hobgoblin.md), rules of the book: -1 Charisma (needs EEex) |
+| 101 | `cbpr_hobgoblin_strong` | [Hobgoblin protagonist](docs/hobgoblin.md), stronger rules: +1 Constitution, -1 Wisdom, -1 Charisma (needs EEex) |
 
-### 100: Hobgoblin protagonist
+Install one of the two: they build the same hobgoblin and differ only in its ability scores.
+
+### 100 and 101: Hobgoblin protagonist
 
 - Character creation offers **Hobgoblin** as a race of its own, with its own description and,
   in EET, its own biography. The race has its own rules, which the engine reads from its race
   tables; an EEex hook gives the race the label those tables use
   ([how it works](docs/new-race-with-eeex.md)).
 
+  | | 100: rules of the book | 101: stronger |
+  |---|---|---|
+  | Ability scores | -1 Charisma | +1 Constitution, -1 Wisdom, -1 Charisma |
+  | Limits | Strength and Dexterity at least 6; Constitution at least 5; Charisma at most 17 | Constitution 12-19; Strength and Dexterity at least 6; Wisdom and Charisma at most 17 |
+
+  Both versions:
+
   | | Hobgoblin |
   |---|---|
-  | Ability scores | +1 Constitution, -1 Wisdom, -1 Charisma |
-  | Limits | Constitution 12-19; Strength and Dexterity at least 6; Wisdom and Charisma at most 17 |
   | Infravision | yes |
   | Hatred of elves | +1 to hit against elves |
   | Thief skills | the human's, with +5% Open Locks, +5% Find Traps, +10% Move Silently, +5% Hide in Shadows |
@@ -33,9 +41,9 @@ tests.
   | Dual-class | yes |
 
   The values follow the hobgoblin of AD&D 2nd edition's *The Complete Book of Humanoids*, with
-  Chris's changes: +1 Constitution (12-19), -1 Wisdom, better Move Silently and Hide in
-  Shadows, dual-classing. The book's Charisma limit of 14 is left out, so paladins (17),
-  bards and druids (15) stay possible. [docs/hobgoblin.md](docs/hobgoblin.md#the-rules)
+  Chris's changes: better Move Silently and Hide in Shadows, dual-classing, and in version 101
+  +1 Constitution (12-19) and -1 Wisdom. The book's Charisma limit of 14 is left out, so
+  paladins (17), bards and druids (15) stay possible. [docs/hobgoblin.md](docs/hobgoblin.md#the-rules)
   compares them.
 - A hobgoblin looks like one: the game gives a new race the human's figure in character
   creation, so the world scripts give every party member of race Hobgoblin the hobgoblin's
@@ -92,7 +100,7 @@ Not done yet:
    the game folder.
 3. Put a current [WeiDU](https://github.com/WeiDUorg/weidu/releases) next to them, named
    `setup-chriz-bg-playable-races.exe`.
-4. Run it and choose component 100.
+4. Run it and choose one version of the hobgoblin: 100 (rules of the book) or 101 (stronger).
 
 Install it after mods that add weapons or armour, so that their items get the hobgoblin
 looks too, and after mods that change the half-orc's classes, kits and other race tables

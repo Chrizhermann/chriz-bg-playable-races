@@ -3,12 +3,27 @@
 // the race's label, and only its seven standard races have one; the mod's EEex hook
 // (lib/race_functions.tpa, race/M_CBPRRC.lua) gives race HOBGOBLIN the label HOBGOBLIN, and the
 // tables below get HOBGOBLIN entries. The values: the hobgoblin of AD&D 2nd edition's The Complete
-// Book of Humanoids, with Chris's changes (docs/hobgoblin.md, decided 2026-10-19).
+// Book of Humanoids, with Chris's changes (docs/hobgoblin.md, decided 2026-10-19). The tp2 sets
+// hg_rules to the version of the ability scores: book or strong (decided 2026-10-20).
 
-// Ability scores. ABRACERQ gives the range of the roll, and ABRACEAD is added to it: STR and DEX
-// 6-18, CON 12-19, INT 3-18, WIS 3-17, CHA 3-17.
-OUTER_SPRINT $hg_values(~ABRACEAD~) ~MOD_STR=0 MOD_DEX=0 MOD_CON=1 MOD_INT=0 MOD_WIS=-1 MOD_CHR=-1~
-OUTER_SPRINT $hg_values(~ABRACERQ~) ~MIN_STR=6 MAX_STR=18 MIN_DEX=6 MAX_DEX=18 MIN_CON=11 MAX_CON=18 MIN_INT=3 MAX_INT=18 MIN_WIS=4 MAX_WIS=18 MIN_CHR=4 MAX_CHR=18~
+// Ability scores. ABRACERQ gives the range of the roll, and ABRACEAD is added to it afterwards.
+ACTION_MATCH ~%hg_rules%~ WITH
+  // The book's: -1 Charisma. STR and DEX 6-18, CON 5-18, INT and WIS 3-18, CHA 3-17.
+  ~book~ BEGIN
+    OUTER_SPRINT $hg_values(~ABRACEAD~) ~MOD_STR=0 MOD_DEX=0 MOD_CON=0 MOD_INT=0 MOD_WIS=0 MOD_CHR=-1~
+    OUTER_SPRINT $hg_values(~ABRACERQ~) ~MIN_STR=6 MAX_STR=18 MIN_DEX=6 MAX_DEX=18 MIN_CON=5 MAX_CON=18 MIN_INT=3 MAX_INT=18 MIN_WIS=3 MAX_WIS=18 MIN_CHR=4 MAX_CHR=18~
+    OUTER_SET hg_desc_ref = RESOLVE_STR_REF (@14)
+  END
+  // Stronger: +1 Constitution, -1 Wisdom, -1 Charisma. STR and DEX 6-18, CON 12-19, INT 3-18,
+  // WIS and CHA 3-17.
+  ~strong~ BEGIN
+    OUTER_SPRINT $hg_values(~ABRACEAD~) ~MOD_STR=0 MOD_DEX=0 MOD_CON=1 MOD_INT=0 MOD_WIS=-1 MOD_CHR=-1~
+    OUTER_SPRINT $hg_values(~ABRACERQ~) ~MIN_STR=6 MAX_STR=18 MIN_DEX=6 MAX_DEX=18 MIN_CON=11 MAX_CON=18 MIN_INT=3 MAX_INT=18 MIN_WIS=4 MAX_WIS=18 MIN_CHR=4 MAX_CHR=18~
+    OUTER_SET hg_desc_ref = RESOLVE_STR_REF (@11)
+  END
+  DEFAULT
+    FAIL ~race.tpa: hg_rules is "%hg_rules%", not book or strong.~
+END
 // Thief skills: the human's, plus these.
 ACTION_DEFINE_ASSOCIATIVE_ARRAY hg_skill_plus BEGIN
   OPEN_LOCKS => 5   FIND_TRAPS => 5   MOVE_SILENTLY => 10   HIDE_IN_SHADOWS => 5
@@ -78,7 +93,7 @@ END
 // description and biography. A row for race 111 or HOBGOBLIN of another mod there would show
 // another race's texts for this one.
 OUTER_SET hg_bio_ref = RESOLVE_STR_REF (@13)
-LAF hg_offer_race INT_VAR race = race_hob name_ref = RESOLVE_STR_REF (@12) desc_ref = RESOLVE_STR_REF (@11)
+LAF hg_offer_race INT_VAR race = race_hob name_ref = RESOLVE_STR_REF (@12) desc_ref = hg_desc_ref
                           upper_ref = RESOLVE_STR_REF (@10) bio_ref = hg_bio_ref
   STR_VAR label = ~HOBGOBLIN~
   RET hg_text_tables = tables hg_text_found = found
@@ -92,4 +107,4 @@ LAF cbpr_register_race INT_VAR id = race_hob bio = hg_bio_ref STR_VAR label = ~H
 ACTION_IF (hg_register != 0) BEGIN
   FAIL @32
 END
-PRINT ~Hobgoblin PC: race %race_hob% HOBGOBLIN in the race tables%hg_race_done%, in %hg_text_tables% race list(s) of character creation~
+PRINT ~Hobgoblin PC: race %race_hob% HOBGOBLIN (%hg_rules% rules) in the race tables%hg_race_done%, in %hg_text_tables% race list(s) of character creation~

@@ -14,9 +14,11 @@ END
 LANGUAGE ~English~ ~english~ ~chriz-bg-playable-races/lang/english/setup.tra~
 
 // Hobgoblin protagonist: race HOBGOBLIN of its own in character creation, through an EEex hook,
-// with the hobgoblin sprite and weapon and armour looks. Companions keep their own looks.
+// with the hobgoblin sprite and weapon and armour looks. Companions keep their own looks. Two versions
+// of the race's rules, one to choose: the book's (100) and a stronger one (101).
 BEGIN @9 DESIGNATED 100
-LABEL ~cbpr_hobgoblin_protagonist~
+SUBCOMPONENT @33
+LABEL ~cbpr_hobgoblin_book~
 REQUIRE_PREDICATE (FILE_EXISTS_IN_GAME ~8100.ini~ AND FILE_EXISTS_IN_GAME ~mhobg1.bam~
                    AND FILE_EXISTS_IN_GAME ~mhobsg1.bam~ AND FILE_EXISTS_IN_GAME ~mhobbg1.bam~) @2
 // EEex: the race hook's functions and pattern folder, and the script trigger the world scripts use.
@@ -28,4 +30,22 @@ REQUIRE_PREDICATE ((DIRECTORY_EXISTS ~EEex_scripts/extra_pattern_dbs~)
   AND (FILE_CONTAINS_EVALUATED (~EEex_scripts/EEex_Menu.lua~ ~^function[ %TAB%]+EEex_Menu_AddAfterMainFileLoadedListener~))
   AND (FILE_CONTAINS_EVALUATED (~EEex_scripts/EEex_Resource.lua~ ~^function[ %TAB%]+EEex_Resource_Load2DA~))
   AND (RESOURCE_CONTAINS ~trigger.ids~ ~EEex_LuaTrigger~)) @25
+OUTER_SPRINT hg_rules ~book~
+INCLUDE ~chriz-bg-playable-races/hobgoblin/hobgoblin.tpa~
+
+BEGIN @34 DESIGNATED 101
+SUBCOMPONENT @33
+LABEL ~cbpr_hobgoblin_strong~
+REQUIRE_PREDICATE (FILE_EXISTS_IN_GAME ~8100.ini~ AND FILE_EXISTS_IN_GAME ~mhobg1.bam~
+                   AND FILE_EXISTS_IN_GAME ~mhobsg1.bam~ AND FILE_EXISTS_IN_GAME ~mhobbg1.bam~) @2
+// EEex: the race hook's functions and pattern folder, and the script trigger the world scripts use.
+REQUIRE_PREDICATE (FILE_EXISTS_IN_GAME ~M___EEex.lua~) @24
+REQUIRE_PREDICATE ((DIRECTORY_EXISTS ~EEex_scripts/extra_pattern_dbs~)
+  AND (FILE_CONTAINS_EVALUATED (~EEex_scripts/EEex_Assembly_x86-64.lua~ ~^function[ %TAB%]+EEex_HookShimFunctionMaintainOriginal~))
+  AND (FILE_CONTAINS_EVALUATED (~EEex_scripts/EEex_Assembly.lua~ ~^function[ %TAB%]+EEex_LabelDefault~))
+  AND (FILE_CONTAINS_EVALUATED (~EEex_scripts/EEex_GameState.lua~ ~^function[ %TAB%]+EEex_GameState_AddInitializedListener~))
+  AND (FILE_CONTAINS_EVALUATED (~EEex_scripts/EEex_Menu.lua~ ~^function[ %TAB%]+EEex_Menu_AddAfterMainFileLoadedListener~))
+  AND (FILE_CONTAINS_EVALUATED (~EEex_scripts/EEex_Resource.lua~ ~^function[ %TAB%]+EEex_Resource_Load2DA~))
+  AND (RESOURCE_CONTAINS ~trigger.ids~ ~EEex_LuaTrigger~)) @25
+OUTER_SPRINT hg_rules ~strong~
 INCLUDE ~chriz-bg-playable-races/hobgoblin/hobgoblin.tpa~

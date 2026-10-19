@@ -4,13 +4,25 @@
 @5 = ~SPLSTATE.IDS has no free spell state (0-255) for the hobgoblin PC marker.~
 @6 = ~No free resource names (HGP1-HGP9) for the hobgoblin's further weapon bodies.~
 @7 = ~The game's hobgoblin sprite is not the one the weapon art was drawn for (another mod may have replaced it), so every melee weapon shows the hobgoblin's sword.~
-@9 = ~Hobgoblin protagonist (prototype)~
+@9 = ~Rules of the book: -1 Charisma~
 @10 = ~Hobgoblin~
 @11 = ~HOBGOBLINS: Hobgoblins are the larger and sterner cousins of goblins. They live by rank and discipline, march in war bands under a hard chain of command, and judge everyone, themselves included, by strength and skill at arms. Most folk know them as raiders and sellswords and meet them with drawn steel, so a hobgoblin who travels among them earns trust slowly, if at all. Of all peoples, hobgoblins hate elves the most.
 
 Hobgoblins have the following traits:
 • +1 Constitution, -1 Wisdom, -1 Charisma.
 • Constitution of at least 12, and up to 19. Strength and Dexterity of at least 6.
+• Infravision.
+• +1 to hit against elves.
+• Thief skills: +5% Open Locks, +5% Find Traps, +10% Move Silently, +5% Hide in Shadows.
+• The classes and kits of a half-orc.
+• Hobgoblins can dual-class.
+
+For a hobgoblin's voice, choose Hobgoblin among the voices.~
+@14 = ~HOBGOBLINS: Hobgoblins are the larger and sterner cousins of goblins. They live by rank and discipline, march in war bands under a hard chain of command, and judge everyone, themselves included, by strength and skill at arms. Most folk know them as raiders and sellswords and meet them with drawn steel, so a hobgoblin who travels among them earns trust slowly, if at all. Of all peoples, hobgoblins hate elves the most.
+
+Hobgoblins have the following traits:
+• -1 Charisma.
+• Strength and Dexterity of at least 6, Constitution of at least 5.
 • Infravision.
 • +1 to hit against elves.
 • Thief skills: +5% Open Locks, +5% Find Traps, +10% Move Silently, +5% Hide in Shadows.
@@ -32,3 +44,5 @@ For a hobgoblin's voice, choose Hobgoblin among the voices.~
 @29 = ~%hg_table%.2DA lacks%hg_missing%, which the hobgoblin's ability scores need: another mod changed its layout. Nothing was installed.~
 @30 = ~%hg_table%.2DA lacks%hg_missing%, so the hobgoblin goes without that part of its rules.~
 @32 = ~CBPRRACE.2DA, the race list of this mod's EEex hook, could not take the hobgoblin (check %hg_register%): another race has its label or number there, or the table has no ID column. Nothing was installed.~
+@33 = ~Hobgoblin protagonist (prototype)~
+@34 = ~Stronger: +1 Constitution, -1 Wisdom, -1 Charisma~

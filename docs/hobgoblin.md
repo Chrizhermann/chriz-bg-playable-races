@@ -1,26 +1,29 @@
-# Hobgoblin protagonist (component 100)
+# Hobgoblin protagonist (components 100 and 101)
 
 The component builds everything from the installed game: the hobgoblin animation INI
 `8100.ini`, the `MHOB*` sprite files, `HOBGOB.CRE` colours, the game's item list, the race
 tables, the game's ten hobgoblin sound clips and the campaigns' world scripts. The hobgoblin is
 a race of its own: the engine reads its rules from the race tables under the label
 `HOBGOBLIN`, which an EEex hook gives race 111 ([new-race-with-eeex.md](new-race-with-eeex.md)).
-So the component needs EEex.
+So the component needs EEex. Its two versions, one to install, differ only in the race's ability
+scores: 100 has the book's, 101 stronger ones (the tp2 sets `hg_rules` to `book` or `strong`).
 
 ## The rules
 
 The hobgoblin of AD&D 2nd edition's *The Complete Book of Humanoids* (CBOH), with Chris's
-changes (decided 2026-10-19). The installer writes them into the race tables (step 5).
+changes (decided 2026-10-19; the two versions 2026-10-20: the book's ability scores for players
+who want the hobgoblin for fun or role-play, stronger ones for power gamers). The installer
+writes them into the race tables (step 5).
 
-| | CBOH | This mod |
-|---|---|---|
-| Ability adjustments | Charisma -1 | Constitution +1, Wisdom -1, Charisma -1 |
-| Ability limits | Strength 6, Dexterity 6, Constitution 5 at least; Charisma 14 at most | Strength and Dexterity at least 6; Constitution 12-19; Wisdom and Charisma at most 17 |
-| Thief skills | Open Locks +5%, Find Traps +5% | the human's, with Open Locks +5%, Find Traps +5%, Move Silently +10%, Hide in Shadows +5% |
-| Infravision | 60 feet | yes |
-| Hatred of elves | yes | +1 to hit against elves |
-| Classes | the book's list | the half-orc's in the installed game, with its kits, mage schools and racial to-hit bonuses |
-| Dual-class | humans only | yes |
+| | CBOH | 100: rules of the book | 101: stronger |
+|---|---|---|---|
+| Ability adjustments | Charisma -1 | Charisma -1 | Constitution +1, Wisdom -1, Charisma -1 |
+| Ability limits | Strength 6, Dexterity 6, Constitution 5 at least; Charisma 14 at most | Strength and Dexterity at least 6, Constitution at least 5; Charisma at most 17 | Strength and Dexterity at least 6; Constitution 12-19; Wisdom and Charisma at most 17 |
+| Thief skills | Open Locks +5%, Find Traps +5% | the human's, with Open Locks +5%, Find Traps +5%, Move Silently +10%, Hide in Shadows +5% | as 100 |
+| Infravision | 60 feet | yes | yes |
+| Hatred of elves | yes | +1 to hit against elves | as 100 |
+| Classes | the book's list | the half-orc's in the installed game, with its kits, mage schools and racial to-hit bonuses | as 100 |
+| Dual-class | humans only | yes | yes |
 
 Left out: the book's level limits (the games have none), its sense for new construction
 underground (no game mechanic), and its Charisma limit of 14, which would rule out paladins
@@ -72,8 +75,8 @@ the roll: the engine rolls within `ABRACERQ` and adds `ABRACEAD` afterwards (lab
 
      | Table | Entry |
      |---|---|
-     | `ABRACEAD` | `MOD_CON` 1, `MOD_WIS` -1, `MOD_CHR` -1, the others 0 |
-     | `ABRACERQ` | `MIN_STR` 6, `MIN_DEX` 6, `MIN_CON` 11, `MIN_WIS` 4, `MIN_CHR` 4, `MIN_INT` 3, every maximum 18 |
+     | `ABRACEAD` | 100: `MOD_CHR` -1; 101: `MOD_CON` 1, `MOD_WIS` -1, `MOD_CHR` -1; the others 0 |
+     | `ABRACERQ` | 100: `MIN_STR` 6, `MIN_DEX` 6, `MIN_CON` 5, `MIN_CHR` 4; 101: `MIN_STR` 6, `MIN_DEX` 6, `MIN_CON` 11, `MIN_WIS` 4, `MIN_CHR` 4; the other minimums 3, every maximum 18 |
      | `SKILLRAC` | the human's row, `OPEN_LOCKS` +5, `FIND_TRAPS` +5, `MOVE_SILENTLY` +10, `HIDE_IN_SHADOWS` +5 |
      | `RACEFEAT` | `VALUE` 1 (infravision) |
      | `CLSRCREQ` | the half-orc's column, `DUALCLASS` 1 |
@@ -88,8 +91,9 @@ the roll: the engine rolls within `ABRACERQ` and adds `ABRACEAD` afterwards (lab
    - a row `HOBGOBLIN` for race 111 in every race table a campaign uses (column `RACETEXT` of
      `CAMPAIGN.2DA`, EET: `RACETEXT`, `BGRACTXT`, `SODRACE`; and `RACETEXT.2DA` itself), in
      front of the first row without a description: the race list keys each race by its row and
-     stops at a gap. The row has the names `hobgoblin` and `Hobgoblin`, the description, and
-     the hobgoblin's biography in each table where the human has one. A table with a row for
+     stops at a gap. The row has the names `hobgoblin` and `Hobgoblin`, the version's
+     description (its list of traits), and the hobgoblin's biography in each table where the
+     human has one. A table with a row for
      race 111 or `HOBGOBLIN` already stops the install. Whatever the column names say, the
      games keep the lower-case name the race list shows in `NAME` ("half-orc") and the
      capitalized one the record screen shows in `UPPERCASE` ("Half-Orc"), and the record
@@ -324,7 +328,7 @@ its own (next section). The engine facts below hold without the hook:
 
 The race of its own, 2026-10-19 (lab runs 17 to 18c, EET over BG2:EE 2.7.3.0 with EEex
 v1.2.0, the lab copy of Chris's install, where Artisan's Kitpack opens all classes to all
-races):
+races; the race had the rules of today's component 101):
 
 - Runs 17 and 17b proved the hook with marker values for race 111 in seven race tables
   (classes and dual-class, kits, ability adjustments and limits, thief skills, infravision,
@@ -371,6 +375,20 @@ races):
 - Uninstall (runs 18, 18b, 18c): all 40,866 files under `override` and `EEex_scripts` matched
   the state before the install.
 
+The book's rules, 2026-10-20 (lab run 20, the same lab, component 100):
+
+- Installed without warning; the race tables had the book's rows: `ABRACEAD` Charisma -1 and
+  0 for the others, `ABRACERQ` Strength and Dexterity at least 6, Constitution at least 5,
+  Charisma at least 4, every maximum 18.
+- Character creation showed the version's description (its first trait "-1 Charisma.").
+  3,000 rerolls for a thief: STR 6-18, DEX 9-18, CON 5-18, INT 4-18, WIS 3-18, CHA 3-17 (run 18
+  with the stronger rules: CON 12-19, WIS 3-17).
+- In the world: race 111, the hobgoblin figure, the marker, `op178`, racial infravision, the
+  race "Hobgoblin" on the record screen, and with 6/6/6/6/6/5/5 points the thief skills
+  21/21/16/26/16/15/5, as in run 18.
+- Uninstall: all 40,866 files under `override` and `EEex_scripts` matched the state before the
+  install.
+
 The weapon art, 2026-10-18:
 
 - In run 15 every weapon switched to its INI, but staves, spears and halberds showed as
@@ -414,8 +432,9 @@ needed):
   another order and among others, short and long rows, blank lines, LF line ends, no final line
   end, a header only), each entry from the values given, the base race or the table's default
   value, and a taken label; single entries by row and column;
-- the hobgoblin's race data (`race.tpa`) on plain and modded tables, with optional tables
-  missing and with EET's campaign tables, and where it stops (an ability table without a column
+- the hobgoblin's race data (`race.tpa`) in both rule versions, each with its own description,
+  on plain and modded tables, with optional tables missing and with EET's campaign tables, and
+  where it stops (an ability table without a column
   it sets, another mod's `HOBGOBLIN` entry, a race list with race 111) or warns (no `DUALCLASS`
   row);
 - the pattern search in synthetic 64-bit PE files: once, twice, none, a near miss, wildcards
@@ -427,7 +446,9 @@ needed):
   world script agree;
 - the component's checks with the real tp2: no EEex, no script trigger, no hook functions, no
   executable, the engine code missing or twice, race number 153; each stops before any game
-  file changes;
+  file changes (the stronger version too, without EEex or the trigger);
+- the tp2's two versions of the component: one subcomponent group, the same checks, the same
+  installer, one rules version each;
 - weapon shafts without gaps at any length and angle, and each weapon with connected parts
   drawn in one piece;
 - world scripts from a `CAMPAIGN.2DA` without data rows, as BG:EE and BG2:EE 2.7 have;
