@@ -270,18 +270,14 @@ BEGIN
     REPLACE_TEXTUALLY ~^\(battle_cry[ %TAB%]*=\)[^%MNL%%LNL%]*~ ~\1~
 END
 
-// Inventory figure from the current (decompressed) creature BAM: frame 0 of `cycle`, scaled
-// up `scale` times, as a BAM of two frames (the figure and a 1x1 blank) with one cycle
-// (0, 0, 1) and the source palette. The centre (cx, cy) places it on the paperdoll; the
-// defaults are the values the lab prototype showed correctly. The blank pixel is the
-// palette's transparent colour (as the engine picks it: the first RGB(0,255,0) entry, else
-// entry 0), and the header keeps the source's RLE index, so a replaced creature BAM that
-// uses other indices for them still gives a clean figure.
-DEFINE_PATCH_FUNCTION hg_bam_inv_figure
+// Frame 0 of `cycle` of the current (decompressed) BAM, decoded: its size (w, h), its centre
+// (cx, cy), the index the engine draws as transparent (tr: the palette's first RGB(0,255,0)
+// entry, else 0), and its pixels (key: y * w + x). RLE: the compressed index is followed by a
+// count of extra copies.
+DEFINE_PATCH_FUNCTION hg_bam_frame_pixels
   INT_VAR cycle = 16
-          scale = 2
-          cx = 0 - 4
-          cy = 0 - 16
+  RET w h cx cy tr
+  RET_ARRAY pixels
 BEGIN
   READ_SHORT 0x08 nfr
   READ_BYTE  0x0a ncy
@@ -295,39 +291,112 @@ BEGIN
   PATCH_IF (ccount < 1) BEGIN PATCH_FAIL ~%SOURCE_FILE%: cycle %cycle% is empty~ END
   READ_SHORT (lo + cfirst * 2) fi
   PATCH_IF (fi >= nfr) BEGIN PATCH_FAIL ~%SOURCE_FILE%: cycle %cycle% names frame %fi% of %nfr%~ END
-  READ_SHORT (fo + fi * 12)     w
-  READ_SHORT (fo + fi * 12 + 2) h
-  READ_LONG  (fo + fi * 12 + 8) doff
+  READ_SHORT  (fo + fi * 12)     w
+  READ_SHORT  (fo + fi * 12 + 2) h
+  READ_SSHORT (fo + fi * 12 + 4) cx
+  READ_SSHORT (fo + fi * 12 + 6) cy
+  READ_LONG   (fo + fi * 12 + 8) doff
   SET raw = ((doff BAND 0x80000000) != 0)
   SET doff = (doff BAND 0x7FFFFFFF)
-  SET old = BUFFER_LENGTH
-  // Decode the frame (RLE: the compressed index is followed by a count of extra copies)
-  // into a scratch area behind the original data.
-  SET dec = old
-  INSERT_BYTES dec (w * h)
+  SET tr = 0 - 1
+  FOR (c = 0; (c < 256) AND (tr < 0); ++c) BEGIN
+    READ_LONG (po + c * 4) col
+    PATCH_IF ((col BAND 0xFFFFFF) = 0x00FF00) BEGIN SET tr = c END
+  END
+  PATCH_IF (tr < 0) BEGIN SET tr = 0 END
+  CLEAR_ARRAY pixels
   SET i = 0
   SET p = doff
   WHILE (i < w * h) BEGIN
-    PATCH_IF (p >= old) BEGIN PATCH_FAIL ~%SOURCE_FILE%: frame %fi% data ends early~ END
+    PATCH_IF (p >= BUFFER_LENGTH) BEGIN PATCH_FAIL ~%SOURCE_FILE%: frame %fi% data ends early~ END
     READ_BYTE p b
     SET p += 1
     PATCH_IF (NOT raw) AND (b = rle) BEGIN
-      PATCH_IF (p >= old) BEGIN PATCH_FAIL ~%SOURCE_FILE%: frame %fi% data ends early~ END
+      PATCH_IF (p >= BUFFER_LENGTH) BEGIN PATCH_FAIL ~%SOURCE_FILE%: frame %fi% data ends early~ END
       READ_BYTE p run
       SET p += 1
       FOR (k = 0; (k <= run) AND (i < w * h); ++k) BEGIN
-        WRITE_BYTE (dec + i) rle
+        SET $pixels(~%i%~) = rle
         SET i += 1
       END
     END ELSE BEGIN
-      WRITE_BYTE (dec + i) b
+      SET $pixels(~%i%~) = b
       SET i += 1
     END
   END
+END
+
+// Inventory figure from the current (decompressed) creature BAM: frame 0 of `cycle`, scaled
+// up `scale` times, as a BAM of two frames (the figure and a 1x1 blank) with one cycle
+// (0, 0, 1) and the source palette. The centre (cx, cy) places it on the paperdoll; the
+// defaults are the values the lab prototype showed correctly. The blank pixel is the
+// palette's transparent colour (as the engine picks it: the first RGB(0,255,0) entry, else
+// entry 0), and the header keeps the source's RLE index, so a replaced creature BAM that
+// uses other indices for them still gives a clean figure.
+// With `overlay` 1, the caller's array hgi_ov holds a frame in the same palette (from
+// hg_bam_frame_pixels: ov_w x ov_h pixels, centre ov_cx and ov_cy, transparent index ov_tr), and
+// its other pixels are drawn over the figure, both frames on their centres, as the engine draws a
+// weapon layer over the body. The figure grows to hold both; the body keeps its place.
+DEFINE_PATCH_FUNCTION hg_bam_inv_figure
+  INT_VAR cycle = 16
+          scale = 2
+          cx = 0 - 4
+          cy = 0 - 16
+          overlay = 0
+          ov_w = 0
+          ov_h = 0
+          ov_cx = 0
+          ov_cy = 0
+          ov_tr = 0
+BEGIN
+  READ_BYTE 0x0b rle
+  READ_LONG 0x10 po
+  LPF hg_bam_frame_pixels INT_VAR cycle RET w h fcx = cx fcy = cy tr RET_ARRAY hgi_body = pixels END
+  // The figure's area relative to the frames' centre: the body frame, grown to hold the overlay.
+  SET x0 = 0 - fcx
+  SET y0 = 0 - fcy
+  SET ux0 = x0
+  SET uy0 = y0
+  SET ux1 = x0 + w
+  SET uy1 = y0 + h
+  PATCH_IF overlay BEGIN
+    SET ox0 = 0 - ov_cx
+    SET oy0 = 0 - ov_cy
+    PATCH_IF (ox0 < ux0) BEGIN SET ux0 = ox0 END
+    PATCH_IF (oy0 < uy0) BEGIN SET uy0 = oy0 END
+    PATCH_IF (ox0 + ov_w > ux1) BEGIN SET ux1 = ox0 + ov_w END
+    PATCH_IF (oy0 + ov_h > uy1) BEGIN SET uy1 = oy0 + ov_h END
+  END
+  SET fw = ux1 - ux0
+  SET fh = uy1 - uy0
+  // The figure at its own size in a scratch area behind the original data.
+  SET comp = BUFFER_LENGTH
+  INSERT_BYTES comp (fw * fh)
+  FOR (y = 0; y < fh; ++y) BEGIN
+    FOR (x = 0; x < fw; ++x) BEGIN
+      SET v = tr
+      SET bx = x + ux0 - x0
+      SET by = y + uy0 - y0
+      PATCH_IF (bx >= 0) AND (bx < w) AND (by >= 0) AND (by < h) BEGIN
+        SET k = by * w + bx
+        SET v = $hgi_body(~%k%~)
+      END
+      PATCH_IF overlay BEGIN
+        SET ox = x + ux0 - ox0
+        SET oy = y + uy0 - oy0
+        PATCH_IF (ox >= 0) AND (ox < ov_w) AND (oy >= 0) AND (oy < ov_h) BEGIN
+          SET k = oy * ov_w + ox
+          SET o = $hgi_ov(~%k%~)
+          PATCH_IF (o != ov_tr) BEGIN SET v = o END
+        END
+      END
+      WRITE_BYTE (comp + y * fw + x) v
+    END
+  END
   // Build the figure BAM behind the scratch area, then drop everything in front of it.
-  SET bw = w * scale
-  SET bh = h * scale
-  SET nb = dec + w * h
+  SET bw = fw * scale
+  SET bh = fh * scale
+  SET nb = comp + fw * fh
   SET b_fo = 0x18                 // two frame entries
   SET b_co = b_fo + 2 * 12        // one cycle entry
   SET b_po = b_co + 4             // palette
@@ -343,25 +412,23 @@ BEGIN
   WRITE_LONG  (nb + 0x14) b_lo
   WRITE_SHORT (nb + b_fo)      bw
   WRITE_SHORT (nb + b_fo + 2)  bh
-  WRITE_SHORT (nb + b_fo + 4)  cx
-  WRITE_SHORT (nb + b_fo + 6)  cy
+  WRITE_SHORT (nb + b_fo + 4)  (cx - scale * (ux0 - x0))
+  WRITE_SHORT (nb + b_fo + 6)  (cy - scale * (uy0 - y0))
   WRITE_LONG  (nb + b_fo + 8)  (0x80000000 BOR b_do)
   WRITE_SHORT (nb + b_fo + 12) 1
   WRITE_SHORT (nb + b_fo + 14) 1
   WRITE_LONG  (nb + b_fo + 20) (0x80000000 BOR (b_do + bw * bh))
   WRITE_SHORT (nb + b_co)      3
   WRITE_SHORT (nb + b_co + 2)  0
-  SET tr = 0 - 1
   FOR (c = 0; c < 256; ++c) BEGIN
     READ_LONG (po + c * 4) col
     WRITE_LONG (nb + b_po + c * 4) col
-    PATCH_IF (tr < 0) AND ((col BAND 0xFFFFFF) = 0x00FF00) BEGIN SET tr = c END
   END
-  WRITE_BYTE (nb + b_do + bw * bh) ((tr < 0) ? 0 : tr)
+  WRITE_BYTE (nb + b_do + bw * bh) tr
   WRITE_SHORT (nb + b_lo + 4) 1
   FOR (y = 0; y < bh; ++y) BEGIN
     FOR (x = 0; x < bw; ++x) BEGIN
-      READ_BYTE (dec + (y / scale) * w + (x / scale)) v
+      READ_BYTE (comp + (y / scale) * fw + (x / scale)) v
       WRITE_BYTE (nb + b_do + y * bw + x) v
     END
   END
@@ -532,10 +599,140 @@ DEFINE_ACTION_FUNCTION hg_make_inv_bam
   INT_VAR cycle = 16
   STR_VAR src = ~~
           dst = ~~
+          overlay = ~~
 BEGIN
+  OUTER_SET hgi_on = 0
+  OUTER_SET hgi_w = 0
+  OUTER_SET hgi_h = 0
+  OUTER_SET hgi_cx = 0
+  OUTER_SET hgi_cy = 0
+  OUTER_SET hgi_tr = 0
+  ACTION_CLEAR_ARRAY hgi_ov
+  ACTION_IF NOT (~%overlay%~ STRING_EQUAL ~~) BEGIN
+    COPY_EXISTING - ~%overlay%.bam~ ~override~
+      LPF hg_bam_decompress END
+      LPF hg_bam_frame_pixels INT_VAR cycle RET hgi_w = w hgi_h = h hgi_cx = cx hgi_cy = cy hgi_tr = tr
+        RET_ARRAY hgi_ov = pixels END
+    OUTER_SET hgi_on = 1
+  END
   COPY_EXISTING ~%src%.bam~ ~override/%dst%.bam~
     LPF hg_bam_decompress END
-    LPF hg_bam_inv_figure INT_VAR cycle END
+    LPF hg_bam_inv_figure INT_VAR cycle overlay = hgi_on ov_w = hgi_w ov_h = hgi_h ov_cx = hgi_cx
+      ov_cy = hgi_cy ov_tr = hgi_tr END
+END
+
+// The hobgoblin's inventory figures, for the EEex hook in hobgoblin/M_CBPRHI.lua. Each animation
+// HG_HOBGOBLIN_PC_1 to HG_HOBGOBLIN_PC_<nslots> (ANIMATE.IDS) has an INI that names its body
+// (resref) and two weapon look codes (resref_weapon1, resref_weapon2); the engine draws a code's
+// weapon layer <body><first letter of the code>. Each body and letter gets the figure
+// <body><letter>INV: the standing body (<body>G1) with that layer (<body><letter>G1) over it
+// (hg_make_inv_bam), and CBPRHGIV.2DA (from `folder`) a row per animation and letter: ID, LETTER,
+// FIGURE (without INV). A code whose body or layer BAM does not exist gets neither (that animation
+// keeps the figure without a weapon). `rows`: the rows written; `figures`: the figures made
+// (animations with the same body and letter share one).
+DEFINE_ACTION_FUNCTION hg_inventory_figures
+  INT_VAR nslots = 0
+  STR_VAR folder = ~chriz-bg-playable-races/hobgoblin~
+  RET rows
+      figures
+BEGIN
+  OUTER_SET rows = 0
+  OUTER_SET figures = 0
+  ACTION_CLEAR_ARRAY hgf_done
+  COPY ~%folder%/CBPRHGIV.2DA~ ~override/CBPRHGIV.2DA~
+  OUTER_FOR (n = 1; n <= nslots; ++n) BEGIN
+    OUTER_SET id = IDS_OF_SYMBOL (~animate~ ~HG_HOBGOBLIN_PC_%n%~)
+    ACTION_IF id < 0 BEGIN FAIL ~hg_inventory_figures: ANIMATE.IDS has no HG_HOBGOBLIN_PC_%n%~ END
+    LAF hg_hex4 INT_VAR value = id RET hex END
+    OUTER_SPRINT body ~~
+    OUTER_SPRINT code1 ~~
+    OUTER_SPRINT code2 ~~
+    COPY_EXISTING - ~%hex%.ini~ ~override~
+      REPLACE_EVALUATE ~^resref[ %TAB%]*=[ %TAB%]*\([^ %TAB%%MNL%%LNL%]+\)~ BEGIN
+        SPRINT body ~%MATCH1%~
+      END ~%MATCH0%~
+      REPLACE_EVALUATE ~^resref_weapon1[ %TAB%]*=[ %TAB%]*\([^ %TAB%%MNL%%LNL%]+\)~ BEGIN
+        SPRINT code1 ~%MATCH1%~
+      END ~%MATCH0%~
+      REPLACE_EVALUATE ~^resref_weapon2[ %TAB%]*=[ %TAB%]*\([^ %TAB%%MNL%%LNL%]+\)~ BEGIN
+        SPRINT code2 ~%MATCH1%~
+      END ~%MATCH0%~
+    ACTION_TO_UPPER body
+    OUTER_SPRINT first ~~
+    ACTION_FOR_EACH code IN ~%code1%~ ~%code2%~ BEGIN
+      OUTER_SPRINT letter ~~
+      ACTION_IF NOT (~%code%~ STRING_EQUAL ~~) BEGIN
+        OUTER_INNER_PATCH ~%code%~ BEGIN
+          READ_ASCII 0 letter (1)
+        END
+        ACTION_TO_UPPER letter
+      END
+      OUTER_SPRINT figure ~%body%%letter%~
+      ACTION_IF NOT (~%letter%~ STRING_EQUAL ~~) AND NOT (~%letter%~ STRING_EQUAL ~%first%~)
+          AND FILE_EXISTS_IN_GAME ~%body%g1.bam~ AND FILE_EXISTS_IN_GAME ~%figure%g1.bam~ BEGIN
+        ACTION_IF NOT VARIABLE_IS_SET $hgf_done(~%figure%~) BEGIN
+          LAF hg_make_inv_bam STR_VAR src = EVAL ~%body%G1~ overlay = EVAL ~%figure%G1~ dst = EVAL ~%figure%INV~ END
+          OUTER_SET $hgf_done(~%figure%~) = 1
+          OUTER_SET figures += 1
+        END
+        APPEND ~CBPRHGIV.2DA~ ~%rows% %id% %letter% %figure%~
+        OUTER_SET rows += 1
+      END
+      OUTER_SPRINT first ~%letter%~
+    END
+  END
+END
+
+// The pattern of the section `label` of the InfinityLoader pattern file `file`: its Pattern= line
+// right below the section's [label] line ("" when there is none).
+DEFINE_ACTION_FUNCTION hg_db_pattern
+  STR_VAR file = ~~
+          label = ~~
+  RET pattern
+BEGIN
+  OUTER_SPRINT pattern ~~
+  COPY - ~%file%~ ~override~
+    REPLACE_EVALUATE CASE_SENSITIVE ~^\[%label%\][ %TAB%]*[%MNL%%LNL%]+Pattern=\([0-9A-Fa-f?]+\)~ BEGIN
+      SPRINT pattern ~%MATCH1%~
+    END ~%MATCH0%~
+END
+
+// The weapon in the hobgoblin's inventory figure: the figures (hg_inventory_figures) and the EEex
+// hook that shows them, from `folder`: M_CBPRHI.lua into override, and CBPRHG.db into EEex's
+// pattern folder, from which EEex's loader finds the two engine functions the hook needs. Only when
+// the executable `exe` has the code of each exactly once; else nothing is installed. `count1`,
+// `count2`: how often each was found; `check1`, `check2`: 0, or why it was not searched
+// (cbpr_code_pattern_count; 3 also when the pattern file lacks the section). `rows`, `figures`:
+// the list's rows and the figures made (hg_inventory_figures; 0 when nothing was installed).
+DEFINE_ACTION_FUNCTION hg_inventory_hook
+  INT_VAR nslots = 0
+  STR_VAR exe = ~Baldur.exe~
+          folder = ~chriz-bg-playable-races/hobgoblin~
+  RET rows
+      figures
+      count1
+      count2
+      check1
+      check2
+BEGIN
+  OUTER_SET rows = 0
+  OUTER_SET figures = 0
+  LAF hg_db_pattern STR_VAR file = EVAL ~%folder%/CBPRHG.db~
+                            label = ~CBPR-CGameAnimationTypeMonsterLayered::GetAnimationResRef~
+    RET hgh_p1 = pattern END
+  LAF hg_db_pattern STR_VAR file = EVAL ~%folder%/CBPRHG.db~
+                            label = ~CBPR-CGameAnimationTypeMonsterLayered::EquipWeapon~
+    RET hgh_p2 = pattern END
+  LAF cbpr_code_pattern_count STR_VAR exe = EVAL ~%exe%~ pattern = EVAL ~%hgh_p1%~
+    RET count1 = count check1 = error END
+  LAF cbpr_code_pattern_count STR_VAR exe = EVAL ~%exe%~ pattern = EVAL ~%hgh_p2%~
+    RET count2 = count check2 = error END
+  ACTION_IF (check1 = 0) AND (check2 = 0) AND (count1 = 1) AND (count2 = 1) BEGIN
+    LAF hg_inventory_figures INT_VAR nslots STR_VAR folder = EVAL ~%folder%~ RET rows figures END
+    COPY ~%folder%/M_CBPRHI.lua~ ~override/M_CBPRHI.lua~
+    MKDIR ~EEex_scripts/extra_pattern_dbs~
+    COPY ~%folder%/CBPRHG.db~ ~EEex_scripts/extra_pattern_dbs/CBPRHG.db~
+  END
 END
 
 // Put the script `baf` (compiled with EVALUATE_BUFFER) on top of every world script the

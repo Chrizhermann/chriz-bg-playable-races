@@ -48,7 +48,11 @@ Install one of the two: they build the same hobgoblin and differ only in its abi
 - A hobgoblin looks like one: the game gives a new race the human's figure in character
   creation, so the world scripts give every party member of race Hobgoblin the hobgoblin's
   figure and colours as the game starts, and again after a dual-class.
-- The inventory shows the hobgoblin as the paperdoll figure.
+- The inventory shows the hobgoblin as the paperdoll figure, with the weapon it holds: one
+  figure per weapon type, built from the game's sprite when the mod is installed. The weapon
+  takes the figure's leather and armour colours. This needs two pieces of engine code in
+  `Baldur.exe`, which the installer looks for; where they are missing, it warns and the figure
+  shows no weapon.
 - A hobgoblin voice from the game's ten hobgoblin clips, each on the event it fits
   (orders and moving, battle cries, selection, hit, death, ...): choose **Hobgoblin** under
   Record > Customize > Voice.
@@ -63,7 +67,7 @@ Install one of the two: they build the same hobgoblin and differ only in its abi
   same armour code. Without armour the protagonist's own colours return.
 - Companions and other creatures keep their looks, even with the same weapons and armour.
 
-Verified in the lab (latest: 2026-10-20, runs 18-20, on a copy of a full EET install with
+Verified in the lab (latest: 2026-10-20, runs 18-22c, on a copy of a full EET install with
 Artisan's Kitpack opening all classes to all races):
 
 - At game start the console reported the race hook active for HOBGOBLIN (111).
@@ -83,6 +87,9 @@ Artisan's Kitpack opening all classes to all races):
 - Saves of v0.1 and v0.2 with a hobgoblin protagonist: after loading, the protagonist had the
   race's rules and the hatred of elves, and v0.2's own skill effects were gone, so nothing
   counted twice.
+- The inventory figure showed the weapon the hobgoblin held, for each of 19 weapons, and no
+  weapon with fists. After saving with an axe and loading, it showed the axe again, then none
+  with fists and the axe once more.
 - Uninstall restored every file under `override` and `EEex_scripts` byte for byte.
 - Earlier runs (v0.1, v0.2): all 19 test weapons gave the sprite their group's look; the
   armour colours, the inventory figure and the voice worked; only hobgoblins changed, the

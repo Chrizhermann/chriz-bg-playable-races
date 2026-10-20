@@ -153,6 +153,26 @@ the roll: the engine rolls within `ABRACERQ` and adds `ABRACEAD` afterwards (lab
     transparent colour (the first `RGB(0,255,0)` entry, else entry 0, as the engine picks
     it) and the header keeps the source's RLE index, so a hobgoblin sprite from another
     mod that uses other indices for them still gives a clean figure.
+
+    The inventory draws a creature from the paperdoll layers its animation names (body,
+    weapon, shield, helmet: each the BAM `<name>INV`). `monster_layered`, the hobgoblin's
+    animation type, names its body only, so these figures hold no weapon. So each body and
+    weapon letter also gets a figure `<body><letter>INV` (`HGPMSINV`, `HGPRBINV`, ...): the same
+    standing frame with that letter's weapon layer (`<body><letter>G1`, cycle 16) drawn over it,
+    both on their centres, the figure grown to hold both and the body where the figure without
+    weapon has it. That is one figure per weapon type, not per item: every item with that look
+    code shows it. `CBPRHGIV.2DA` lists the figures: per animation (`ID`) and first letter of
+    each of its INI's two look codes (`LETTER`, in capitals) whose body and layer exist, the
+    figure (`FIGURE`, without `INV`). The EEex hook `hobgoblin/M_CBPRHI.lua` (into `override`)
+    makes a listed animation name that figure for its body layer while it draws a weapon of
+    that letter; without a weapon, and for every other animation, the engine's own answer
+    stays. EEex's loader finds the two engine functions the hook needs from
+    `hobgoblin/CBPRHG.db` (into `EEex_scripts/extra_pattern_dbs`): the one that names
+    `monster_layered`'s paperdoll layers, which the hook redirects, and its `EquipWeapon`, whose
+    code proves the fields the hook reads. The installer adds the figures, the list and the hook
+    only when `Baldur.exe` has each of the two exactly once; otherwise it warns, and the
+    inventory keeps the figures without weapon. `CBPR_HobgoblinInventory.Status` and the
+    console tell whether the hook is active.
 12. **Voice set `CBPRHG`.** All ten hobgoblin clips of the game (`HOBGL01`-`HOBGL10`), each
     on the event it fits, registered with the EE Soundset Tool's `cd_add_soundset`
     (`lib/cd_add_soundset.tph`, shipped unchanged):
@@ -414,6 +434,44 @@ The book's rules, 2026-10-20 (lab run 20, the same lab, component 100):
 - Uninstall: all 40,866 files under `override` and `EEex_scripts` matched the state before the
   install.
 
+The weapon in the inventory figure, 2026-10-20 (lab runs 22 to 22c, the same lab, component
+101, a hobgoblin fighter):
+
+- Chris chose one figure per weapon type: every item with the same look code shows the same
+  figure. Recolouring the half-orc's figure, which takes every equipment picture, was turned
+  down, as it looks like a painted half-orc; a figure drawn for the mod is left for later.
+- The engine code (2.7.3.0): the inventory asks the creature's animation for the name of each
+  paperdoll layer (body, weapon, shield, helmet) and draws `<name>INV`. `monster_layered`
+  answers for the body only, with its INI's `resref`. Its `EquipWeapon` compares the item's
+  look code with the INI's two codes, ignoring case, keeps which one matched and the weapon's
+  frames, and clears both when it draws no weapon; the hook reads those fields. A search of the
+  engine code for calls of the name function on a creature's animation found only the
+  inventory's, and in run 22 the world sprite looked as before.
+- Run 22: the installer built 18 figures for 29 pairs of animation and weapon letter, and the
+  console reported the hook active on 20 animations. Each of 19 weapons (four swords, dagger,
+  mace, hammer, flail, morning star, club, staff, spear, halberd, a mod item with the look code
+  `hb` in lower case, sling, two bows, crossbow, axe) showed in the inventory the figure with
+  the weapon layer its look code selects, the layer the sprite draws in the world; fists
+  showed the figure without a weapon. The install message called the 29 rows "inventory
+  figures"; it now gives both numbers.
+- What the figures cannot do: they take the body's palette, so the weapon has the hobgoblin's
+  leather and armour colours, not the item's. Bows and the sling are small in the standing
+  frame, as in the world. The sprite's shadow stays in the figure as a dark patch, as in the
+  figure without a weapon.
+- Saving: in run 22 the game refused to save ("You cannot save at this time."). The engine
+  gives that message from several checks (creatures, the area, projectiles, the game itself);
+  which one refused was not captured. Run 22b, with the same steps, saved at the first try; no
+  creature in the area had an action that blocks saving. After loading, the hobgoblin held the
+  axe (`0x8103`), the hook was active, and the inventory figure with the axe was the same as
+  before saving, pixel for pixel; with fists it showed no weapon.
+- Run 22c, with the new install message ("18 inventory figures with a weapon, 29 rows in
+  CBPRHGIV.2DA") and the console's "active for 20 animations (29 rows of CBPRHGIV.2DA, 18
+  figures)": the save worked at the first try. After loading it, the figure showed the axe,
+  with fists no weapon, and with the axe selected again the axe, each the same pixel for pixel
+  as in run 22.
+- Uninstall (runs 22, 22b, 22c): all 40,866 files under `override` and `EEex_scripts` matched
+  the state before the install.
+
 The weapon art, 2026-10-18:
 
 - In run 15 every weapon switched to its INI, but staves, spears and halberds showed as
@@ -443,7 +501,15 @@ needed):
 - the shipped `cd_add_soundset.tph` byte for byte, and the hobgoblin voice's table: all ten
   clips, at most two used twice, orders, battle cries and selection filled, no slot that
   is silent for player characters;
-- the inventory figure, also from sprites with other transparent and RLE indices;
+- the inventory figure, also from sprites with other transparent and RLE indices, and with a
+  weapon layer drawn over it: the figure grows in every direction the layer needs, the layer's
+  transparent pixels keep the body (also when the transparent index is not 0);
+- the inventory hook's install: a figure and a list row per animation and weapon letter (look
+  codes in either case, two codes of one letter, an empty code, a missing layer), the counts of
+  rows and figures, the hook's files byte for byte, uninstall; nothing installed when an engine function is missing, found
+  twice, without an executable or with a pattern file that lacks the section; and that the
+  hook's Lua, pattern file, figure list and installer agree (labels, the moved code, the call it
+  takes, the fields it reads, the list's name and columns);
 - weapon groups and bodies from a game's items (IESDP codes, the majority by item type and
   its tie order, codes in any letter case, slings), and the free body names;
 - the frame-geometry checksums (the same as `tools/hob_weapon_art.py` computes), and the
@@ -491,8 +557,13 @@ The tests include uninstall. Any WeiDU 249 or newer works, also a mod's `setup-*
 - Listening to the voice in a real game: the lab runs muted, so it checked subtitles and
   the engine's state, not the sound.
 - More voice lines.
+- An inventory figure drawn for the mod, in place of the one made from the sprite (discussed
+  2026-10-20, for later).
 - Before a release: check the `HG*` resource names (`HGPM*`, `HGP1*`-`HGP9*`, `HGPR*`,
-  `HGE*`, `HGA*`, `HGPC*`), `CBPRRACE.2DA`, `CBPRRACE.db`, `M_CBPRRC.lua`, `M_CBPRHG.lua`, the
-  label `CBPR-CRuleTables::GetRaceString`, the Lua names `CBPR_RaceHook`,
-  `CBPR_HasCharacterAnimation`, `CBPR_GetRaceString_Original` and `CBPR_HobgoblinLook`, the
-  global `CBPR_HOBGOBLIN_RACE` and the voice set name `CBPRHG` against other mods.
+  `HGE*`, `HGA*`, `HGPC*`), `CBPRRACE.2DA`, `CBPRRACE.db`, `M_CBPRRC.lua`, `M_CBPRHG.lua`,
+  `CBPRHGIV.2DA`, `CBPRHG.db`, `M_CBPRHI.lua`, the labels `CBPR-CRuleTables::GetRaceString`,
+  `CBPR-CGameAnimationTypeMonsterLayered::GetAnimationResRef` and
+  `CBPR-CGameAnimationTypeMonsterLayered::EquipWeapon`, the Lua names `CBPR_RaceHook`,
+  `CBPR_HasCharacterAnimation`, `CBPR_GetRaceString_Original`, `CBPR_HobgoblinLook`,
+  `CBPR_HobgoblinInventory` and `CBPR_InvResRef_Original`, the global `CBPR_HOBGOBLIN_RACE`
+  and the voice set name `CBPRHG` against other mods.

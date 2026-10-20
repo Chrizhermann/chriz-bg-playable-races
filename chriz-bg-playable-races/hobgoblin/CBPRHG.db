@@ -1,0 +1,17 @@
+; Chriz BG Playable Races: the engine code the hobgoblin's inventory hook (M_CBPRHI.lua) needs. Each
+; pattern occurs once in the Baldur.exe of BG:EE and of BG2:EE 2.7.3.0 (EET runs the latter); the
+; installer checks the game it installs into. Only call targets and RIP-relative offsets are left
+; open (??), so a game whose classes have another layout does not match.
+;
+; The animation's paperdoll resref for a layer (vtable +0x48), the code monster_layered shares with
+; ambient: out = "", and for layer 0 out = the INI's resref (the CString at +0xCD0).
+[CBPR-CGameAnimationTypeMonsterLayered::GetAnimationResRef]
+Pattern=48895C24084889742410574883EC20488BFA488BF1488BCF488D15????????410FB6D8E8????????84DB7522488B0F488D15????????E8????????85C0750F488D96D00C0000488BCFE8????????
+NoCache=1
+
+; monster_layered equipping a weapon: the INI's two weapon codes are CStrings at +0x1740, the one
+; that matched goes to +0x1738 (byte, 0 or 1), the weapon's video cell to +0x1208 (null when no
+; weapon is drawn).
+[CBPR-CGameAnimationTypeMonsterLayered::EquipWeapon]
+Pattern=4055535657415441564157488BEC4883EC40488B05????????4833C4488945F8488B014C8BF24533E4B215458BF94489A134170000498BF0488BD9FF9038010000488B03B214488BCBFF9038010000488B03B210488BCBFF9038010000498B06443960F80F84????????4439A3301700000F85????????4032FF660F1F440000498B16400FB6C7488B8CC340170000E8????????85C0740E40FEC74080FF0272DFE9????????B9C01500004C8D83F00C00004C3983E00C0000B85013000041B9881400000F45C1488D0C18B818120000410F45C14803C34889830812000048898B101200004088BB38170000
+NoCache=1

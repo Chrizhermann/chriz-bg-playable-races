@@ -37,6 +37,12 @@
   engine equips the items before the saved marker state is in force. An EEex listener
   (`hobgoblin/M_CBPRHG.lua`) now gives a creature whose saved effects set the marker that state
   before its items are equipped; no other creature is touched (lab runs 18b, 19).
+- The inventory figure holds the hobgoblin's weapon (decided 2026-10-20: one figure per weapon
+  type, not per item). Per body and weapon letter the installer builds the standing hobgoblin
+  with that weapon layer (`<body><letter>INV`, listed in `CBPRHGIV.2DA`), and an EEex hook
+  (`hobgoblin/M_CBPRHI.lua`, found through `hobgoblin/CBPRHG.db`) makes the inventory show it
+  while the hobgoblin draws that weapon. Where `Baldur.exe` does not have the two engine
+  functions exactly once, the installer warns and the figure stays without weapon.
 
 ## v0.2.0-proto (unreleased)
 

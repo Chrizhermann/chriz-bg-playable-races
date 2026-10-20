@@ -46,3 +46,4 @@ For a hobgoblin's voice, choose Hobgoblin among the voices.~
 @32 = ~CBPRRACE.2DA, the race list of this mod's EEex hook, could not take the hobgoblin (check %hg_register%): another race has its label or number there, or the table has no ID column. Nothing was installed.~
 @33 = ~Hobgoblin protagonist (prototype)~
 @34 = ~Stronger: +1 Constitution, -1 Wisdom, -1 Charisma~
+@35 = ~The inventory will show the hobgoblin without its weapon: this game's executable (Baldur.exe) does not have the two pieces of engine code the inventory hook needs exactly once each (found %hg_inv_n1% and %hg_inv_n2% time(s), check %hg_inv_e1% and %hg_inv_e2%).~

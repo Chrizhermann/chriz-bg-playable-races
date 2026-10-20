@@ -213,6 +213,22 @@ END
 // Inventory figure for the launcher body.
 LAF hg_make_inv_bam STR_VAR src = ~mhobg1~ dst = ~hgprinv~ END
 
+// ---------------------------------------------------------------- inventory figures
+// The inventory draws a creature from the paperdoll layers its animation names (body, weapon,
+// shield, helmet: each a BAM <resref>INV); monster_layered names its body only, so the figures
+// above show no weapon. The EEex hook in M_CBPRHI.lua makes the hobgoblin's animations name the
+// figure of the weapon they draw instead: one per body and weapon letter, the hobgoblin standing
+// with that weapon layer (listed in CBPRHGIV.2DA). The hook needs two engine functions
+// (CBPRHG.db), each once in Baldur.exe; else the inventory keeps the figures above.
+LAF hg_inventory_hook INT_VAR nslots = hg_nslots
+  RET hg_inv_rows = rows hg_inv_figures = figures hg_inv_n1 = count1 hg_inv_n2 = count2
+      hg_inv_e1 = check1 hg_inv_e2 = check2 END
+ACTION_IF (hg_inv_e1 = 0) AND (hg_inv_e2 = 0) AND (hg_inv_n1 = 1) AND (hg_inv_n2 = 1) BEGIN
+  PRINT ~Hobgoblin PC: %hg_inv_figures% inventory figures with a weapon, %hg_inv_rows% rows in CBPRHGIV.2DA~
+END ELSE BEGIN
+  WARN @35
+END
+
 // ---------------------------------------------------------------- colours
 // The installed generic hobgoblin's palette, else the vanilla values.
 ACTION_DEFINE_ASSOCIATIVE_ARRAY hg_col BEGIN

@@ -478,6 +478,234 @@ def inventory_figure(work, weidu):
     return fails
 
 
+def frame_bam(w, h, cx, cy, pixels, palette=None, rle_index=0, compressed=False):
+    """Creature BAM whose every cycle (0-16) shows the one frame given."""
+    return fg.make_bam([(w, h, cx, cy, bytes(pixels), True)], [[0]] * 17, palette or creature_palette(),
+                       rle_index=rle_index, compressed=compressed)
+
+
+def composite(body, overlay, tr=0):
+    """The inventory figure the library should make from two frames (w, h, cx, cy, pixels): the
+    overlay's pixels other than `tr` over the body, both on their centres, in the area holding
+    both (else `tr`), 2x, with the centre that keeps the body where the figure of the body alone
+    has it (-4, -16). Returns (w, h, cx, cy, pixels) of the figure frame."""
+    bw, bh, bcx, bcy, bpix = body
+    ow, oh, ocx, ocy, opix = overlay
+    ux0, uy0 = min(-bcx, -ocx), min(-bcy, -ocy)
+    ux1, uy1 = max(bw - bcx, ow - ocx), max(bh - bcy, oh - ocy)
+    fw, fh = ux1 - ux0, uy1 - uy0
+    comp = bytearray()
+    for y in range(uy0, uy1):
+        for x in range(ux0, ux1):
+            v = tr
+            if 0 <= x + bcx < bw and 0 <= y + bcy < bh:
+                v = bpix[(y + bcy) * bw + x + bcx]
+            if 0 <= x + ocx < ow and 0 <= y + ocy < oh and opix[(y + ocy) * ow + x + ocx] != tr:
+                v = opix[(y + ocy) * ow + x + ocx]
+            comp.append(v)
+    scaled = bytes(comp[(y // 2) * fw + x // 2] for y in range(2 * fh) for x in range(2 * fw))
+    return 2 * fw, 2 * fh, -4 - 2 * (ux0 + bcx), -16 - 2 * (uy0 + bcy), scaled
+
+
+INVO_TP2 = r"""LAF hg_make_inv_bam STR_VAR src = ~mhobg1~ overlay = ~mhobsg1~ dst = ~hgtinv~ END
+"""
+
+
+@test
+def inventory_figure_overlay(work, weidu):
+    """With an overlay (a weapon layer), its frame 0 of cycle 16 is drawn over the body's on both
+    centres, its transparent pixels leaving the body (also when the transparent index is not 0,
+    and 0 is then drawn), and the figure grows to hold both: to the left and down, to the right
+    and up, not at all for an overlay inside the body; the centre keeps the body where the figure
+    without overlay has it. Body from BIFF or override, overlay BAM or BAMC."""
+    _, _, fig = creature_bam()
+    body = (5, 4, 2, 3, fig)
+    green5 = {"palette": creature_palette(5), "rle_index": 5}
+    fig5 = bytes(5 if v == 0 else v for v in fig)
+    cases = {  # name: (body frame, overlay frame, BAM options, overlay compressed, body in override)
+        "left_and_down": (body, (3, 6, 4, 2, bytes([50, 0, 51, 0, 52, 0, 53, 54, 55, 0, 0, 56,
+                                                    57, 0, 58, 59, 60, 61])), {}, False, False),
+        "right_and_up": (body, (4, 2, -1, 5, bytes([70, 71, 0, 72, 0, 73, 74, 75])), {}, True, False),
+        "inside": (body, (2, 2, 1, 2, bytes([0, 80, 81, 0])), {}, False, True),
+        "transparent_5": ((5, 4, 2, 3, fig5), (2, 2, 1, 2, bytes([5, 80, 0, 5])), green5, True, True),
+    }
+    fails = []
+    for name, (bframe, oframe, kw, ov_compressed, body_override) in cases.items():
+        tr = 5 if kw else 0
+        bam = frame_bam(*bframe, **kw)
+        ov = frame_bam(*oframe, **kw, compressed=ov_compressed)
+        g = fg.FakeGame(work / f"invo_{name}", weidu, INVO_TP2, biff=None if body_override else {"MHOBG1.BAM": bam},
+                        override={"MHOBSG1.BAM": ov, **({"MHOBG1.BAM": bam} if body_override else {})})
+        out = g.install()
+        if not fg.installed_ok(out):
+            fails.append(f"{name}: install failed: {out[-800:]}")
+            continue
+        data = g.read("override/hgtinv.bam")
+        frames, cycles, lookup, pal = fg.read_bam(data)
+        want = composite(bframe, oframe, tr)
+        if frames != [want, (1, 1, 0, 0, bytes([tr]))]:
+            fails.append(f"{name}: frames {[f[:4] for f in frames]}, want {want[:4]}"
+                         f"{'' if not frames or frames[0][4] == want[4] else ', pixels differ'}")
+        if cycles != [(3, 0)] or lookup != [0, 0, 1] or pal != (kw.get("palette") or creature_palette()) \
+                or data[0x0B] != kw.get("rle_index", 0):
+            fails.append(f"{name}: cycles {cycles} lookup {lookup} RLE index {data[0x0B]}")
+    return fails
+
+
+# --- The inventory hook: figures with a weapon, and the hook's files ----------------------------
+
+INVH_TP2 = r"""LAF hg_inventory_hook INT_VAR nslots = 5 STR_VAR exe = ~cbprtest/game.exe~ folder = ~%s~
+  RET rows figures count1 count2 check1 check2 END
+PRINT ~RESULT IH %%rows%% %%figures%% %%count1%% %%count2%% %%check1%% %%check2%%~
+"""
+INV_LABELS = ["CBPR-CGameAnimationTypeMonsterLayered::GetAnimationResRef",
+              "CBPR-CGameAnimationTypeMonsterLayered::EquipWeapon"]
+
+
+def inventory_patterns(db=None):
+    """{label: pattern} of the inventory hook's pattern file."""
+    db = db if db is not None else (MOD / "hobgoblin/CBPRHG.db").read_text(encoding="ascii")
+    return dict(re.findall(r"^\[([^\]\r\n]+)\][ \t]*\r?\nPattern=([0-9A-Fa-f?]+)", db, re.M))
+
+
+# The animations of the fixture (ANIMATE.IDS HG_HOBGOBLIN_PC_1-5, ids 0x8101-0x8105) and their
+# INIs: body and weapon codes, written as the installer or another tool might.
+IH_INIS = {
+    "8101.INI": b"[general]\r\nanimation_type=E000\r\n[monster_layered]\r\nresref=HGPM\r\nresref_weapon1=S1\r\n"
+                b"resref_weapon2=HB\r\n",
+    "8102.INI": b"[monster_layered]\r\nresref = HGPR\r\nresref_weapon1 = BW\r\nresref_weapon2\t=\tCB\r\n",
+    "8103.INI": b"[monster_layered]\r\nresref=hgp1\r\nresref_weapon1=hb\r\nresref_weapon2=H6\r\n",  # one letter
+    "8104.INI": b"[monster_layered]\r\nresref=HGPM\r\nresref_weapon1=Q2\r\nresref_weapon2=QS\r\n",  # no Q layer
+    "8105.INI": b"[monster_layered]\nresref=HGPM\nresref_weapon1=S2\nresref_weapon2=\n",            # LF, one code
+}
+IH_IDS = b"IDS V1.0\r\n0x8100 HOBGOBLIN\r\n" + b"".join(
+    b"0x%X HG_HOBGOBLIN_PC_%d\r\n" % (0x8100 + n, n) for n in range(1, 6))
+# Body and layer frames (cycle 16): bodies 4x4, centre (2, 3); layers 2x5, centre (3, 1).
+IH_FRAMES = {name: ((4, 4, 2, 3) if len(name) == 4 else (2, 5, 3, 1)) for name in
+             ("HGPM", "HGPR", "HGP1", "HGPMS", "HGPMH", "HGPRB", "HGPRC", "HGP1H")}
+IH_ROWS = {("33025", "S", "HGPMS"), ("33025", "H", "HGPMH"), ("33026", "B", "HGPRB"), ("33026", "C", "HGPRC"),
+           ("33027", "H", "HGP1H"), ("33029", "S", "HGPMS")}
+
+
+def ih_frame(name):
+    w, h, cx, cy = IH_FRAMES[name]
+    seed = sum(name.encode())
+    return w, h, cx, cy, bytes(0 if (i + seed) % 3 == 0 else 1 + (seed + 7 * i) % 200 for i in range(w * h))
+
+
+def ih_game(work, weidu, name, exe, folder_files=None, folder="chriz-bg-playable-races/hobgoblin"):
+    files = {f"{folder}/{f}": (MOD / "hobgoblin" / f).read_bytes() for f in ("CBPRHG.db", "CBPRHGIV.2DA", "M_CBPRHI.lua")}
+    files.update({f"{folder}/{f}": data for f, data in (folder_files or {}).items()})
+    if exe is not None:
+        files["cbprtest/game.exe"] = exe
+    biff = {f"{n}G1.BAM": frame_bam(*ih_frame(n)) for n in IH_FRAMES}
+    return fg.FakeGame(work / f"ih_{name}", weidu, INVH_TP2 % folder, biff=biff,
+                       override={"ANIMATE.IDS": IH_IDS, **IH_INIS}, files=files)
+
+
+@test
+def inventory_hook(work, weidu):
+    """With both pieces of engine code once in the executable, each animation's body and weapon
+    letter (the code's first, in capitals) whose body and layer BAMs exist gets a row in
+    CBPRHGIV.2DA and the figure <body><letter>INV (made once, the layer over the body; the counts
+    tell the rows and the figures apart), and the
+    hook's Lua and pattern file go into the game byte for byte; uninstalling restores every
+    file. An animation whose layer is missing gets no row; two codes of one letter one row; an
+    empty code none. With a piece missing, twice, no executable or a pattern file without the
+    section, nothing is installed and the counts tell why."""
+    pats = inventory_patterns()
+    c1, c2 = (code_of(pats[label]) for label in INV_LABELS)
+    pad = b"\xcc" * 32
+    fails = []
+    g = ih_game(work, weidu, "once", pe64(pad + c1 + pad + c2 + pad))
+    before = g.tree()
+    out = g.install()
+    if g.results(out, "IH") != ["6 5 1 1 0 0"] or not fg.installed_ok(out):
+        return [f"once: results {g.results(out, 'IH')}: {out[-800:]}"]
+    columns, rows = fg.table(g.read("override/CBPRHGIV.2DA"))
+    if columns != ["ID", "LETTER", "FIGURE"] or {tuple(v) for v in rows.values()} != IH_ROWS or len(rows) != 6:
+        fails.append(f"once: CBPRHGIV.2DA columns {columns}, rows {sorted(rows.values())}")
+    figures = {p.name.upper() for p in (g.root / "override").glob("*") if p.name.upper().endswith("INV.BAM")}
+    if figures != {f"{f}INV.BAM" for f in ("HGPMS", "HGPMH", "HGPRB", "HGPRC", "HGP1H")}:
+        fails.append(f"once: figures {sorted(figures)}")
+    for fig in ("HGPMS", "HGP1H", "HGPRC"):
+        frames = fg.read_bam(g.read(f"override/{fig}INV.BAM"))[0] if f"{fig}INV.BAM" in figures else []
+        if frames[:1] != [composite(ih_frame(fig[:4]), ih_frame(fig))]:
+            fails.append(f"once: {fig}INV is not {fig}G1 over {fig[:4]}G1")
+    for src, dst in (("M_CBPRHI.lua", "override/M_CBPRHI.lua"),
+                     ("CBPRHG.db", "EEex_scripts/extra_pattern_dbs/CBPRHG.db")):
+        if not (g.root / dst).is_file() or g.read(dst) != (MOD / "hobgoblin" / src).read_bytes():
+            fails.append(f"once: {dst} is not the mod's {src}")
+    out = g.uninstall()
+    if g.tree() != before:
+        fails.append(f"once: files differ after uninstalling: {sorted(set(g.tree().items()) ^ set(before.items()))[:4]}")
+    db = (MOD / "hobgoblin/CBPRHG.db").read_text(encoding="ascii")
+    no_section = db[:db.index("[" + INV_LABELS[1] + "]")].encode("ascii")
+    cases = {  # name: (executable, files replaced in the hook's folder, folder, results wanted)
+        "second_missing": (pe64(pad + c1 + pad), None, None, "0 0 1 0 0 0"),
+        "first_twice": (pe64(c1 + pad + c1 + pad + c2), None, None, "0 0 2 1 0 0"),
+        "no_exe": (None, None, None, "0 0 0 0 1 1"),
+        "db_without_section": (pe64(pad + c1 + pad + c2 + pad), {"CBPRHG.db": no_section}, "othermod/hob",
+                               "0 0 1 0 0 3"),
+    }
+    for name, (exe, folder_files, folder, want) in cases.items():
+        g = ih_game(work, weidu, name, exe, folder_files, folder or "chriz-bg-playable-races/hobgoblin")
+        before = g.tree()
+        out = g.install()
+        if not fg.installed_ok(out) or g.results(out, "IH") != [want] or g.tree() != before:
+            fails.append(f"{name}: results {g.results(out, 'IH')}, want {want}, files changed {g.tree() != before}")
+    return fails
+
+
+@test
+def inventory_hook_files(work, weidu):
+    """The inventory hook's files agree: the pattern file has the two sections the Lua asks EEex's
+    loader for and the installer reads (each its Pattern= line right below the label, and
+    NoCache=1); the code the Lua moves for its shim and the call it takes the CString assignment
+    from are where its pattern has them; the fields the Lua reads are the ones EquipWeapon's
+    pattern writes; the Lua reads the figure list by the name and columns the installer writes it
+    with; the hobgoblin's installer calls the hook's install; the Lua file has a resource name."""
+    db = (MOD / "hobgoblin/CBPRHG.db").read_text(encoding="ascii")
+    lua = (MOD / "hobgoblin/M_CBPRHI.lua").read_text(encoding="utf-8")
+    lib = fg.LIB.read_text(encoding="latin-1")
+    tpa = (MOD / "hobgoblin/hobgoblin.tpa").read_text(encoding="latin-1")
+    fails = []
+    pats = inventory_patterns(db)
+    labels = re.findall(r"^\[([^\]\r\n]+)\]", db, re.M)
+    if labels != INV_LABELS or list(pats) != INV_LABELS or len(re.findall(r"^NoCache=1\r?$", db, re.M)) != 2:
+        fails.append(f"pattern file: labels {labels}, sections with a pattern {list(pats)}")
+    for label in INV_LABELS:
+        if f'EEex_LabelDefault("{label}"' not in lua:
+            fails.append(f"the Lua does not ask for {label}")
+        if f"label = ~{label}~" not in lib:
+            fails.append(f"the installer does not read {label}")
+    pat = pats.get(INV_LABELS[0], "")
+    prologue = re.search(r'if prologue ~= "([0-9A-F ]+)"', lua)
+    shim = re.search(r"EEex_HookShimFunctionMaintainOriginal, fn, (\d+),", lua)
+    moved = prologue.group(1).replace(" ", "") if prologue else ""
+    if not moved or not pat.startswith(moved) or not shim or int(shim.group(1)) * 2 != len(moved) \
+            or "bytesAt(fn, " + shim.group(1) + ")" not in lua:
+        fails.append(f"the shim moves {shim and shim.group(1)} bytes, the Lua checks {moved!r}")
+    if pat[0x23 * 2:0x28 * 2] != "E8????????" or "fn + 0x28 + rel32(fn + 0x24)" not in lua:
+        fails.append("the call the Lua reads is not the pattern's call at +0x23")
+    equip = pats.get(INV_LABELS[1], "")
+    for asm, code in (("[rcx+0x1208]", "48898308120000"), ("[rcx+0x1738]", "4088BB38170000"),
+                      ("[r9+0x1740]", "488B8CC340170000")):
+        if asm not in lua or code not in equip:
+            fails.append(f"the Lua reads {asm}, EquipWeapon's pattern has {code}: {asm in lua} {code in equip}")
+    columns, _ = fg.table((MOD / "hobgoblin/CBPRHGIV.2DA").read_bytes())
+    read = re.findall(r't:getAtLabels\("(\w+)", label\)', lua)
+    if columns != ["ID", "LETTER", "FIGURE"] or sorted(read) != sorted(columns) \
+            or 'EEex_Resource_Load2DA("CBPRHGIV")' not in lua \
+            or "APPEND ~CBPRHGIV.2DA~ ~%rows% %id% %letter% %figure%~" not in lib:
+        fails.append(f"figure list: template columns {columns}, the Lua reads {read}")
+    if "LAF hg_inventory_hook INT_VAR nslots = hg_nslots" not in tpa:
+        fails.append("the hobgoblin's installer does not call hg_inventory_hook")
+    if long := [p.name for p in (MOD / "hobgoblin").glob("M_*.lua") if len(p.stem) > 8]:
+        fails.append(f"Lua files without a resource name of at most 8 characters: {long}")
+    return fails
+
+
 # --- Weapon groups and bodies ----------------------------------------------------------
 
 MELEE_TYPES = "16 17 18 19 20 21 22 23 25 26 29 30 44 57 69"
