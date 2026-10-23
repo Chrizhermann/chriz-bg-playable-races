@@ -5,9 +5,9 @@ protagonist into a creature the game already has. The installer builds the sprit
 armour colours from your installed game's own files and draws the weapons with the mod's
 own weapon art, so the mod ships no game art or audio.
 
-**Status:** lab prototype `v0.3.0-proto`, not released. It has been tested only in a
-disposable lab copy of one EET install (BG2:EE 2.7.3.0, EEex v1.2.0) and with the offline
-tests.
+**Status:** lab prototype `v0.3.0-proto`, not released. It has been tested only in
+disposable lab copies of EET installs (BG2:EE 2.7.3.0) with EEex v1.2.0 and v1.3.1, and with
+the offline tests.
 
 ## Components
 
@@ -67,8 +67,9 @@ Install one of the two: they build the same hobgoblin and differ only in its abi
   same armour code. Without armour the protagonist's own colours return.
 - Companions and other creatures keep their looks, even with the same weapons and armour.
 
-Verified in the lab (latest: 2026-10-20, runs 18-22c, on a copy of a full EET install with
-Artisan's Kitpack opening all classes to all races):
+Verified in the lab (runs 18-22c, 2026-10-20, with EEex v1.2.0, and runs 23a-23e, 2026-10-23,
+with EEex v1.3.1; each on a copy of a full EET install with Artisan's Kitpack opening all
+classes to all races):
 
 - At game start the console reported the race hook active for HOBGOBLIN (111).
 - Character creation listed the hobgoblin with its description, and offered it the half-orc's
@@ -91,19 +92,25 @@ Artisan's Kitpack opening all classes to all races):
   weapon with fists. After saving with an axe and loading, it showed the axe again, then none
   with fists and the axe once more.
 - Uninstall restored every file under `override` and `EEex_scripts` byte for byte.
+- With EEex v1.3.1 (runs 23a-23e) the installer found each piece of engine code it needs
+  exactly once, and the steps above gave the same results: the three hooks active at game start and after every
+  reload, the race list, classes, kits, rolls and thief skills of both versions, dual-class,
+  saving and reloading, the weapon in hand after loading (an enemy hobgoblin kept its looks;
+  these games had no companions), the inventory figures pixel for pixel as with v1.2.0, and
+  uninstall of both versions byte for byte. Saves of v0.1 and v0.2 were not loaded again.
 - Earlier runs (v0.1, v0.2): all 19 test weapons gave the sprite their group's look; the
   armour colours, the inventory figure and the voice worked; only hobgoblins changed, the
   companions kept their sprites.
 
 Not done yet:
 
-- Not tested with EEex v1.3.1, BG:EE or SoD outside EET, or other game versions.
+- Not tested on BG:EE or SoD outside EET, or with other game versions.
 - The voice has only the ten clips the game's hobgoblins have, so it repeats itself
   more than a full voice pack.
 
 ## Installation (testers)
 
-1. Install [EEex](https://github.com/Bubb13/EEex) first (v1.2.0 tested).
+1. Install [EEex](https://github.com/Bubb13/EEex) first (v1.2.0 and v1.3.1 tested).
 2. Copy `setup-chriz-bg-playable-races.tp2` and the `chriz-bg-playable-races` folder into
    the game folder.
 3. Put a current [WeiDU](https://github.com/WeiDUorg/weidu/releases) next to them, named

@@ -408,7 +408,7 @@ races; the race had the rules of today's component 101):
   equips it again against the full stats, which is why that helped.
 - The fix (run 19, 2026-10-19): EEex's `EEex_Sprite_AddLoadedListener` runs inside
   `CGameSprite::Unmarshal` after the timed effect list is read and before the items are
-  equipped (EEex v1.2.0 in the lab; the same hook in v1.3.1's code). `M_CBPRHG.lua` sets the
+  equipped (EEex v1.2.0 in run 19, v1.3.1 in run 23d). `M_CBPRHG.lua` sets the
   marker state there for a creature whose saved effects carry the marker. Saves made with a
   staff, an axe and a bow selected loaded with `0x8108`, `0x8103` and `0x8102`, right away and
   5 seconds later, with the `op177` in force and the `op318` gone; so did the run 18b save.
@@ -471,6 +471,58 @@ The weapon in the inventory figure, 2026-10-20 (lab runs 22 to 22c, the same lab
   as in run 22.
 - Uninstall (runs 22, 22b, 22c): all 40,866 files under `override` and `EEex_scripts` matched
   the state before the install.
+
+EEex v1.3.1, 2026-10-23 (lab runs 23a to 23e, EET over BG2:EE 2.7.3.0 with EEex v1.3.1: a copy
+of the collection's EEex v1.3.1 lab, a newer copy of Chris's install, again with Artisan's Kitpack
+opening all classes to all races; component 101, in run 23c component 100):
+
+- The installer found each piece of engine code exactly once (`CRuleTables::GetRaceString` at
+  `0x140246440`, `GetAnimationResRef` at `0x140326A10`, `EquipWeapon` at `0x140326070`); a
+  separate count over the code sections of `Baldur.exe` found the same. Both components
+  installed without warning; component 101 wrote what it writes with v1.2.0: 20 animation INIs on
+  3 melee bodies, 18 inventory figures for 29 rows, the race in nine race tables and three race
+  lists, spell state 195.
+- At the start screen and after every reload the console reported the three hooks: "active for
+  HOBGOBLIN (111) at 0x140246440", "active for spell state 195" and "active for 20 animations
+  (29 rows of CBPRHGIV.2DA, 18 figures) at 0x140326A10". `bioRaceData` had race 111's entry.
+- Character creation (run 23a): "hobgoblin" eighth in the race list, the half-orc's 21 classes
+  and the same nine thief kits. 3,000 rerolls for a thief: hobgoblin STR 6-18, DEX 9-18, CON
+  12-19, INT 4-18, WIS 3-17, CHA 3-17; half-orc STR 5-19, CON 5-19, INT 1-16; human STR 4-18,
+  CON 4-18. Thief skills at DEX 13-15 before any points: hobgoblin 15/15/10/20/10/10/0, human
+  15/10/5/10/5/10/0, half-orc 15/10/10/10/5/5/0; in the world, with 6/6/6/6/6/5/5 points,
+  21/21/16/26/16/15/5. Race 111, the hobgoblin figure, the marker, `op178` against elves,
+  infravision and "Hobgoblin" on the record screen, all kept by saving and reloading.
+- Component 100 (run 23c): 3,000 rerolls STR 6-18, DEX 9-18, CON 5-18, INT 4-18, WIS 4-18, CHA
+  3-17, within its `ABRACERQ` (run 20: WIS 3-18; a Wisdom of 3 is rare). The same skills, figure,
+  marker, `op178` and record screen; saving and reloading kept them.
+- Dual-class (run 23d): after the level-up to thief level 2 the dual-class button was on, and
+  fighter, cleric and mage were offered; after dual-classing to fighter: Fighter/Thief with
+  levels 1 and 2, race 111, the record screen "Hobgoblin", the hobgoblin figure with the staff.
+  This lab's Chriz Modpack (v0.2.0-alpha.12) has component 650, whose XP banking refuses every
+  permanent XP award and keeps the level-up button off for every character: in run 23b the
+  bank refused the hobgoblin, four humans and three cows alike ("Actor lifetime unobserved";
+  fixed in alpha.13). In run 23a the dual-class step therefore never got its level-up, and in
+  run 23e, with 650 on again, the XP stayed 0 after an `op104` of 1,300. Run 23d switched 650 off
+  for its session by 650's own fallback (its config file set aside: "Startup failed", XP as before
+  650) and put the file back afterwards, byte for byte.
+- The weapon after loading (run 23d, and run 23e with 650 on): saves made with an axe, a bow and
+  a staff selected loaded with `0x8103`, `0x8102` and `0x8108`, right away and 5 seconds later,
+  with the `op177` in force and no `op318`. With the listener switched off, the axe save showed
+  the old bug (`0x8101`); with it on again, the axe once more. An enemy vanilla hobgoblin
+  (`HOBGOB`, EA 255) given an axe kept `0x8100` before saving and after each load. These games
+  had no companions.
+- The inventory figure (run 23b, a fighter): for each of 19 weapons the hook answered with the
+  figure its table gives for the matched look code, and fists gave none; all 21 pictures were
+  the same pixel for pixel as run 22's with v1.2.0. After saving with the axe and loading: the
+  axe, with fists none, the axe again, each the same pixel for pixel as in run 22c.
+- Saving: in run 23a the game refused one save ("You cannot save at this time.") right after
+  the enemy was made and the axe equipped. In runs 23b to 23e every save first listed the
+  creatures whose current action or state keeps the engine from saving, and every object in the
+  loaded areas by type. All 12 saves worked at the first try, in run 23e also with run 23a's
+  steps and 650 on, and no creature was ever on that list. What refused the one save is not
+  known, as in run 22.
+- Uninstall (runs 23b, 23c, 23e): all 40,762 files under `override` and `EEex_scripts` matched
+  the state before the install, for component 101 (twice) and for component 100.
 
 The weapon art, 2026-10-18:
 
@@ -552,8 +604,9 @@ The tests include uninstall. Any WeiDU 249 or newer works, also a mod's `setup-*
 
 ## Open
 
-- EEex v1.3.1, BG:EE and SoD outside EET, and game versions other than 2.7.3.0: not
-  lab-tested.
+- BG:EE and SoD outside EET, and game versions other than 2.7.3.0: not lab-tested.
+- With EEex v1.3.1: companions after loading, and saves of v0.1 and v0.2 (both checked with
+  v1.2.0 only).
 - Listening to the voice in a real game: the lab runs muted, so it checked subtitles and
   the engine's state, not the sound.
 - More voice lines.

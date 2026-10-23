@@ -5,7 +5,8 @@
 - The hobgoblin is a race of its own: character creation creates race HOBGOBLIN (111) with its
   own rules, read from the race tables under the label `HOBGOBLIN`. An EEex hook
   (`race/M_CBPRRC.lua`, found through `race/CBPRRACE.db`) makes the engine give race 111 that
-  label; without it the engine has labels for its seven races only. **Needs EEex** (lab: v1.2.0).
+  label; without it the engine has labels for its seven races only. **Needs EEex** (lab: v1.2.0
+  and v1.3.1).
 - The race's rules (The Complete Book of Humanoids, with Chris's changes; decided 2026-10-19 and
   2026-10-20), in two versions, one to install: component 100 the book's ability scores (-1
   Charisma; Strength and Dexterity at least 6, Constitution at least 5), component 101 stronger

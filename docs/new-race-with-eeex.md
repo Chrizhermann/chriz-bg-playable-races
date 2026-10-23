@@ -1,8 +1,8 @@
 # A race of its own with EEex
 
 How this mod makes the hobgoblin a real race, and how another race (ours or another mod's) can
-use the same hook. Status: prototype. Lab-tested on EET over BG2:EE 2.7.3.0 with EEex v1.2.0;
-see [What is tested](#what-is-tested).
+use the same hook. Status: prototype. Lab-tested on EET over BG2:EE 2.7.3.0 with EEex v1.2.0 and
+v1.3.1; see [What is tested](#what-is-tested).
 
 ## Why a new race needs EEex
 
@@ -179,8 +179,10 @@ earlier application, so it can be applied again after each dual-class.
   limits; the thief skills of the race's row; infravision; +1 to hit against elves; dual-class;
   saving and reloading; saves of older versions of this mod; uninstall restoring every file
   under `override` and `EEex_scripts`. Details: [hobgoblin.md](hobgoblin.md#why-it-is-built-this-way).
+- Lab with EEex v1.3.1 (the same game version, a copy of a newer modded install, again with all
+  classes open to all races; runs 23a to 23e, 2026-10-23): the engine code once, the hook active
+  at game start and after every reload, and the same race list, classes, kits, rolls, thief
+  skills, dual-class, saving and reloading and uninstall as with v1.2.0.
 
-Not tested: EEex v1.3.1 (the hook uses only functions that are byte-identical in its Lua files,
-and its loader reads `extra_pattern_dbs` too), BG:EE and SoD outside EET (same function bytes),
-IWD:EE and PST:EE, and game versions other than 2.7.3.0. Not looked for: engine rules that go by
-the race number instead of the label.
+Not tested: BG:EE and SoD outside EET (same function bytes), IWD:EE and PST:EE, and game versions
+other than 2.7.3.0. Not looked for: engine rules that go by the race number instead of the label.
