@@ -594,6 +594,60 @@ BEGIN
   SET present = (column > 0)
 END
 
+// Make the owned registration possible on an older or hand-edited table: retain its columns and
+// rows, append every numbered EE row that is absent, and report whether it has a writable shape.
+DEFINE_PATCH_FUNCTION hg_charsnd_normalize
+  RET writable
+BEGIN
+  SET writable = 0
+  LPF hg_2da_layout RET ncols drow nrows END
+  PATCH_IF (ncols >= 2) BEGIN
+    FOR (wanted = 1; wanted <= 99; ++wanted) BEGIN
+      SET found = 0
+      FOR (r = drow; r < drow + nrows; ++r) BEGIN
+        READ_2DA_ENTRY r 0 ncols label
+        PATCH_IF (IS_AN_INT ~%label%~) AND (label = wanted) BEGIN SET found = 1 END
+      END
+      PATCH_IF NOT found BEGIN
+        SPRINT row ~%wanted%~
+        FOR (c = 1; c < ncols; ++c) BEGIN SPRINT row ~%row% -1~ END
+        INSERT_2DA_ROW (drow + nrows) ncols ~%row%~
+        SET nrows += 1
+      END
+    END
+    SET writable = 1
+  END
+END
+
+// The vendor helper appends a column. Remove this mod's old column first so it appends exactly one
+// fresh owned registration instead of refusing the install or leaving stale duplicate columns.
+DEFINE_PATCH_FUNCTION hg_charsnd_reclaim
+  STR_VAR name = ~~
+BEGIN
+  LPF cbpr_text_lines RET nlines RET_ARRAY hgcr_s = starts hgcr_e = ends END
+  PATCH_IF (nlines >= 3) BEGIN
+    SET hs = $hgcr_s(~2~)
+    SET he = $hgcr_e(~2~)
+    LPF cbpr_line_word INT_VAR from = hs to = he RET ncols = words END
+    SET column = 0 - 1
+    FOR (c = 0; c < ncols; ++c) BEGIN
+      LPF cbpr_line_word INT_VAR from = hs to = he k = c RET head = word END
+      PATCH_IF (~%head%~ STRING_EQUAL_CASE ~%name%~) BEGIN
+        SET column = c
+      END
+    END
+    PATCH_IF (column >= 0) BEGIN
+      FOR (i = nlines - 1; i >= 3; i = i - 1) BEGIN
+        LPF cbpr_line_word INT_VAR from = $hgcr_s(~%i%~) to = $hgcr_e(~%i%~) k = column + 1
+          RET at = wstart to = wend words = words END
+        PATCH_IF (column + 1 < words) BEGIN DELETE_BYTES at (to - at) END
+      END
+      LPF cbpr_line_word INT_VAR from = hs to = he k = column RET at = wstart to = wend END
+      DELETE_BYTES at (to - at)
+    END
+  END
+END
+
 // Inventory figure resource `dst` from frame 0 of `cycle` of the game's BAM `src`.
 DEFINE_ACTION_FUNCTION hg_make_inv_bam
   INT_VAR cycle = 16
@@ -865,19 +919,22 @@ BEGIN
     unhappy_2 => 6_
   END
   OUTER_SET slots = 0
-  OUTER_SET ok = 0
-  OUTER_SET present = 0
+  OUTER_SET writable = 0
   ACTION_IF FILE_EXISTS_IN_GAME ~charsnd.2da~ BEGIN
-    COPY_EXISTING - ~charsnd.2da~ ~override~
-      LPF hg_charsnd_check STR_VAR name RET ok present END
+    COPY_EXISTING ~charsnd.2da~ ~override~
+      LPF hg_charsnd_normalize RET writable END
+      PATCH_IF writable BEGIN
+        LPF hg_charsnd_reclaim STR_VAR name END
+      END
   END
-  OUTER_SET named = 0
-  ACTION_IF FILE_EXISTS_IN_GAME ~m_cdsnd.lua~ BEGIN
-    COPY_EXISTING - ~m_cdsnd.lua~ ~override~
-      LPF hg_menu_named STR_VAR name RET named END
+  ACTION_IF writable BEGIN
+    ACTION_IF FILE_EXISTS_IN_GAME ~m_cdsnd.lua~ BEGIN
+      COPY_EXISTING ~m_cdsnd.lua~ ~override~
+        REPLACE_TEXTUALLY ~^[ %TAB%]*filenames_stringrefs[ %TAB%]*\[[ %TAB%]*['"]%name%['"][ %TAB%]*\][ %TAB%]*=[^%WNL%]*%WNL%?~ ~~
+    END
   END
-  // The filled slots: their files, files that exist already, clips the game lacks.
-  OUTER_SPRINT clash ~~
+  // The filled slots: their files and clips the game lacks. Existing destination files are owned
+  // output and are overwritten below.
   OUTER_SPRINT missing ~~
   OUTER_SPRINT wanted ~~
   OUTER_SET listed = 0
@@ -893,25 +950,19 @@ BEGIN
         ACTION_IF (STRING_LENGTH ~%suffix%~ = 1) BEGIN
           OUTER_SET listed += 1
         END
-        ACTION_IF FILE_EXISTS_IN_GAME ~%file%.wav~ OR FILE_EXISTS ~lang/%EE_LANGUAGE%/sounds/%file%.wav~ BEGIN
-          OUTER_SPRINT clash ~%file%.wav~
-        END
       END ELSE BEGIN
         OUTER_SPRINT missing ~%missing% %clip% (%slot%)~
       END
     END
   END
-  ACTION_IF NOT ok BEGIN
-    WARN ~CHARSND.2DA is missing or lacks the 99 numbered rows the engine expects; no %name% voice set.~
-  END ELSE ACTION_IF present OR named BEGIN
-    WARN ~The voice name %name% is taken (CHARSND.2DA column or M_cdsnd.lua menu name); no voice set.~
-  END ELSE ACTION_IF NOT (~%clash%~ STRING_EQUAL ~~) BEGIN
-    WARN ~A sound file %clash% exists already; no %name% voice set.~
-  END ELSE ACTION_IF (listed = 0) BEGIN
-    WARN ~No clip of the %name% voice set fills a one-character slot, so the voice menu would not list it; no voice set.~
+  ACTION_IF NOT writable BEGIN
+    PRINT ~CHARSND.2DA cannot take the %name% voice registration; no voice set was written.~
   END ELSE BEGIN
     ACTION_IF NOT (~%missing%~ STRING_EQUAL ~~) BEGIN
-      WARN ~The game lacks these %name% voice clips, so their slots stay empty:%missing%~
+      PRINT ~The game lacks these %name% voice clips; their slots stay empty:%missing%~
+    END
+    ACTION_IF (listed = 0) BEGIN
+      PRINT ~No %name% clip fills a one-character slot; its decided registration was still written.~
     END
     // The game's own subtitles for the clips.
     ACTION_CLEAR_ARRAY hgc_text
@@ -1333,13 +1384,14 @@ END
 // A row `label` for race `id` in the campaign race table in the buffer: the strings
 // `name_ref`, `desc_ref` (-1: not offered in character creation), `upper_ref` and `bio_ref`
 // go into the columns NAME, DESCSTR, UPPERCASE and BIOGRAPHY wherever they are, `id` into
-// ID, and any other column gets the table's default value. The games fill NAME with the
+// ID, and any other column gets the table's default value. Missing owned columns are added before
+// the row is written. The games fill NAME with the
 // lower-case name the race list shows ("half-orc") and UPPERCASE with the capitalized one the
 // record screen shows ("Half-Orc"); the record screen finds a race's row by its ID. Character creation lists the
 // races whose row has a description, keyed by row number, so the row goes in front of the
 // first row without one: behind such a row it would leave a gap in the list, where the race
-// menu stops (lab run 14). At the end when every row has a description. Nothing (`added`
-// 0) when the table has a row `label` or a row for race `id` already, or no ID column.
+// menu stops (lab run 14). At the end when every row has a description. A pre-existing row for
+// the label or ID is replaced with this race's decided result.
 DEFINE_PATCH_FUNCTION hg_race_row
   INT_VAR id = 0
           name_ref = 0 - 1
@@ -1350,43 +1402,62 @@ DEFINE_PATCH_FUNCTION hg_race_row
   RET added
 BEGIN
   SET added = 0
+  LPF cbpr_add_table_column STR_VAR column = ~ID~ END
+  LPF cbpr_add_table_column STR_VAR column = ~NAME~ END
+  LPF cbpr_add_table_column STR_VAR column = ~DESCSTR~ END
+  LPF cbpr_add_table_column STR_VAR column = ~UPPERCASE~ END
+  LPF cbpr_add_table_column STR_VAR column = ~BIOGRAPHY~ END
   LPF hg_2da_layout RET ncols drow nrows hrow END
   LPF hg_2da_column STR_VAR name = ~ID~ RET cid = column END
   LPF hg_2da_column STR_VAR name = ~DESCSTR~ RET cdesc = column END
   READ_2DA_ENTRY 1 0 1 default
-  SET taken = (cid = 0)
+  SET target = 0 - 1
   SET at = drow + nrows
   FOR (r = drow + nrows - 1; r >= drow; r = r - 1) BEGIN
     READ_2DA_ENTRY r 0 ncols lbl
     READ_2DA_ENTRY r cid ncols rid
-    PATCH_IF (~%lbl%~ STRING_EQUAL_CASE ~%label%~) OR ((IS_AN_INT rid) AND (rid = id)) BEGIN
-      SET taken = 1
+    PATCH_IF (target < 0) AND ((~%lbl%~ STRING_EQUAL_CASE ~%label%~) OR ((IS_AN_INT rid) AND (rid = id))) BEGIN
+      SET target = r
     END
     PATCH_IF (cdesc > 0) BEGIN
       READ_2DA_ENTRY r cdesc ncols d
       PATCH_IF (~%d%~ STRING_EQUAL ~-1~) BEGIN SET at = r END
     END
   END
-  PATCH_IF NOT taken BEGIN
-    SPRINT row ~%label%~
+  SPRINT row ~%label%~
+  FOR (c = 0; c < ncols - 1; ++c) BEGIN
+    READ_2DA_ENTRY hrow c (ncols - 1) head
+    TO_UPPER head
+    PATCH_IF (~%head%~ STRING_EQUAL ~ID~) BEGIN
+      SPRINT v ~%id%~
+    END ELSE PATCH_IF (~%head%~ STRING_EQUAL ~NAME~) BEGIN
+      SPRINT v ~%name_ref%~
+    END ELSE PATCH_IF (~%head%~ STRING_EQUAL ~DESCSTR~) BEGIN
+      SPRINT v ~%desc_ref%~
+    END ELSE PATCH_IF (~%head%~ STRING_EQUAL ~UPPERCASE~) BEGIN
+      SPRINT v ~%upper_ref%~
+    END ELSE PATCH_IF (~%head%~ STRING_EQUAL ~BIOGRAPHY~) BEGIN
+      SPRINT v ~%bio_ref%~
+    END ELSE BEGIN
+      SPRINT v ~%default%~
+    END
+    SPRINT row ~%row% %v%~
+  END
+  PATCH_IF (target >= 0) BEGIN
+    SET_2DA_ENTRY target 0 ncols ~%label%~
     FOR (c = 0; c < ncols - 1; ++c) BEGIN
       READ_2DA_ENTRY hrow c (ncols - 1) head
       TO_UPPER head
-      PATCH_IF (~%head%~ STRING_EQUAL ~ID~) BEGIN
-        SPRINT v ~%id%~
-      END ELSE PATCH_IF (~%head%~ STRING_EQUAL ~NAME~) BEGIN
-        SPRINT v ~%name_ref%~
-      END ELSE PATCH_IF (~%head%~ STRING_EQUAL ~DESCSTR~) BEGIN
-        SPRINT v ~%desc_ref%~
-      END ELSE PATCH_IF (~%head%~ STRING_EQUAL ~UPPERCASE~) BEGIN
-        SPRINT v ~%upper_ref%~
-      END ELSE PATCH_IF (~%head%~ STRING_EQUAL ~BIOGRAPHY~) BEGIN
-        SPRINT v ~%bio_ref%~
-      END ELSE BEGIN
-        SPRINT v ~%default%~
-      END
-      SPRINT row ~%row% %v%~
+      PATCH_IF (~%head%~ STRING_EQUAL ~ID~) BEGIN SPRINT v ~%id%~
+      END ELSE PATCH_IF (~%head%~ STRING_EQUAL ~NAME~) BEGIN SPRINT v ~%name_ref%~
+      END ELSE PATCH_IF (~%head%~ STRING_EQUAL ~DESCSTR~) BEGIN SPRINT v ~%desc_ref%~
+      END ELSE PATCH_IF (~%head%~ STRING_EQUAL ~UPPERCASE~) BEGIN SPRINT v ~%upper_ref%~
+      END ELSE PATCH_IF (~%head%~ STRING_EQUAL ~BIOGRAPHY~) BEGIN SPRINT v ~%bio_ref%~
+      END ELSE BEGIN SPRINT v ~%default%~ END
+      SET_2DA_ENTRY target (c + 1) ncols ~%v%~
     END
+    SET added = 1
+  END ELSE BEGIN
     INSERT_2DA_ROW at ncols ~%row%~
     SET added = 1
   END

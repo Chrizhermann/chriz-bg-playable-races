@@ -54,10 +54,12 @@ DEFINE_PATCH_FUNCTION cbpr_line_word
           to = 0
           k = 0
   RET word
+      wstart
       wend
       words
 BEGIN
   SPRINT word ~~
+  SET wstart = to
   SET wend = to
   SET words = 0
   SET inword = 0
@@ -71,6 +73,7 @@ BEGIN
       PATCH_IF inword BEGIN
         PATCH_IF (words = k + 1) BEGIN
           READ_ASCII ws word (p - ws)
+          SET wstart = ws
           SET wend = p
         END
         SET inword = 0
@@ -144,12 +147,76 @@ BEGIN
   END
 END
 
-// A row `label` for a new race at the end of the 2DA table in the buffer (races as rows, as in
-// ABRACEAD.2DA). Each column gets the entry `values` names ("COLUMN=entry ...", column names in
-// any letter case), else the entry of the first row `base` there, else the table's default value.
-// `added`: whether the row was added; not when the table has a row `label` already (`taken` 1) or
-// no header line. `missing`: the columns `values` names that the table lacks, each with a space in
-// front.
+// Add `column` to the header of the 2DA table in the buffer when it is absent. Existing rows get
+// the table default so a later writer can set its owned value without depending on the old layout.
+DEFINE_PATCH_FUNCTION cbpr_add_table_column
+  STR_VAR column = ~~
+  RET added
+BEGIN
+  SET added = 0
+  LPF cbpr_text_lines RET nlines RET_ARRAY cbprtc_s = starts cbprtc_e = ends END
+  PATCH_IF (nlines >= 3) BEGIN
+    LPF cbpr_line_word INT_VAR from = $cbprtc_s(~2~) to = $cbprtc_e(~2~) RET ncols = words END
+    SET exists = 0
+    FOR (c = 0; c < ncols; ++c) BEGIN
+      LPF cbpr_line_word INT_VAR from = $cbprtc_s(~2~) to = $cbprtc_e(~2~) k = c RET head = word END
+      PATCH_IF (~%head%~ STRING_EQUAL_CASE ~%column%~) BEGIN SET exists = 1 END
+    END
+    PATCH_IF NOT exists BEGIN
+      LPF cbpr_line_word INT_VAR from = $cbprtc_s(~1~) to = $cbprtc_e(~1~) RET default = word END
+      // Work from the bottom so the captured offsets above remain valid.
+      FOR (i = nlines - 1; i >= 3; i = i - 1) BEGIN
+        SET s = $cbprtc_s(~%i%~)
+        SET e = $cbprtc_e(~%i%~)
+        LPF cbpr_line_word INT_VAR from = s to = e RET words = words END
+        PATCH_IF (words > 0) BEGIN
+          SPRINT value ~  %default%~
+          INSERT_BYTES e (STRING_LENGTH ~%value%~)
+          WRITE_ASCIIE e ~%value%~
+        END
+      END
+      SPRINT value ~  %column%~
+      INSERT_BYTES $cbprtc_e(~2~) (STRING_LENGTH ~%value%~)
+      WRITE_ASCIIE $cbprtc_e(~2~) ~%value%~
+      SET added = 1
+    END
+  END
+END
+
+// Add the named row with default cells when it is absent. The caller then writes the owned cells.
+DEFINE_PATCH_FUNCTION cbpr_add_table_row
+  STR_VAR label = ~~
+  RET added
+BEGIN
+  SET added = 0
+  LPF cbpr_text_lines RET nlines crlf RET_ARRAY cbprtr_s = starts cbprtr_e = ends END
+  PATCH_IF (nlines >= 3) BEGIN
+    LPF cbpr_line_word INT_VAR from = $cbprtr_s(~1~) to = $cbprtr_e(~1~) RET default = word END
+    LPF cbpr_line_word INT_VAR from = $cbprtr_s(~2~) to = $cbprtr_e(~2~) RET ncols = words END
+    SET exists = 0
+    FOR (i = 3; i < nlines; ++i) BEGIN
+      LPF cbpr_line_word INT_VAR from = $cbprtr_s(~%i%~) to = $cbprtr_e(~%i%~) RET row = word END
+      PATCH_IF (~%row%~ STRING_EQUAL_CASE ~%label%~) BEGIN SET exists = 1 END
+    END
+    PATCH_IF NOT exists BEGIN
+      SPRINT text ~%label%~
+      FOR (c = 0; c < ncols; ++c) BEGIN SPRINT text ~%text%  %default%~ END
+      PATCH_IF crlf BEGIN SPRINT eol ~%WNL%~ END ELSE BEGIN SPRINT eol ~%LNL%~ END
+      SET at = BUFFER_LENGTH
+      READ_BYTE (at - 1) last
+      PATCH_IF (last != 10) BEGIN SPRINT text ~%eol%%text%~ END
+      SPRINT text ~%text%%eol%~
+      INSERT_BYTES at (STRING_LENGTH ~%text%~)
+      WRITE_ASCIIE at ~%text%~
+      SET added = 1
+    END
+  END
+END
+
+// A row `label` for a race in the 2DA table in the buffer (races as rows, as in ABRACEAD.2DA).
+// Each named column is created when absent, then every owned cell is written. Other cells come from
+// the base row or the table default. `taken` reports that the row was already ours, never a reason
+// to leave its prior values in place.
 DEFINE_PATCH_FUNCTION cbpr_add_race_row
   STR_VAR label = ~~
           base = ~~
@@ -162,6 +229,9 @@ BEGIN
   SET taken = 0
   SPRINT missing ~~
   LPF cbpr_parse_values STR_VAR values RET keys RET_ARRAY cbprr_v = map END
+  PATCH_PHP_EACH cbprr_v AS key => value BEGIN
+    LPF cbpr_add_table_column STR_VAR column = EVAL ~%key%~ END
+  END
   LPF cbpr_text_lines RET nlines crlf RET_ARRAY cbprr_s = starts cbprr_e = ends END
   PATCH_IF (nlines >= 3) BEGIN
     LPF cbpr_line_word INT_VAR from = $cbprr_s(~1~) to = $cbprr_e(~1~) RET default = word END
@@ -178,7 +248,7 @@ BEGIN
         SET brow = i
       END
     END
-    PATCH_IF (NOT taken) AND (ncols > 0) BEGIN
+    PATCH_IF (ncols > 0) BEGIN
       SPRINT text ~%label%~
       FOR (c = 0; c < ncols; ++c) BEGIN
         LPF cbpr_line_word INT_VAR from = hs to = he k = c RET head = word END
@@ -203,22 +273,29 @@ BEGIN
       END ELSE BEGIN
         SPRINT eol ~%LNL%~
       END
-      SET at = BUFFER_LENGTH
-      READ_BYTE (at - 1) last
-      PATCH_IF (last != 10) BEGIN
-        SPRINT text ~%eol%%text%~
-      END
-      SPRINT text ~%text%%eol%~
-      INSERT_BYTES at (STRING_LENGTH ~%text%~)
-      WRITE_ASCIIE at ~%text%~
-      SET added = 1
-      INNER_PATCH ~%keys%~ BEGIN
-        REPLACE_EVALUATE ~[^ ]+~ BEGIN
-          PATCH_IF NOT VARIABLE_IS_SET EVAL ~cbprr_used_%MATCH0%~ BEGIN
-            SPRINT missing ~%missing% %MATCH0%~
+      PATCH_IF taken BEGIN
+        // Replace the current row's decided cells, rather than treating an old row as a refusal.
+        FOR (i = 3; i < nlines; ++i) BEGIN
+          LPF cbpr_line_word INT_VAR from = $cbprr_s(~%i%~) to = $cbprr_e(~%i%~) RET row = word END
+          PATCH_IF (~%row%~ STRING_EQUAL_CASE ~%label%~) BEGIN
+            SET at = $cbprr_s(~%i%~)
+            SET length = $cbprr_e(~%i%~) - at
+            DELETE_BYTES at length
+            INSERT_BYTES at (STRING_LENGTH ~%text%~)
+            WRITE_ASCIIE at ~%text%~
           END
-        END ~%MATCH0%~
+        END
+      END ELSE BEGIN
+        SET at = BUFFER_LENGTH
+        READ_BYTE (at - 1) last
+        PATCH_IF (last != 10) BEGIN
+          SPRINT text ~%eol%%text%~
+        END
+        SPRINT text ~%text%%eol%~
+        INSERT_BYTES at (STRING_LENGTH ~%text%~)
+        WRITE_ASCIIE at ~%text%~
       END
+      SET added = 1
     END
   END
 END
@@ -228,8 +305,8 @@ END
 // case), else its entry in the first column `base`, else the table's default value. A row shorter
 // than the header first gets the default value for each entry it lacks, so the new entry lands in
 // the new column; a row longer than the header gets it right behind its last column. `added`:
-// whether the column was added; not when the table has a column `label` already (`taken` 1) or no
-// header line. `missing`: the rows `values` names that the table lacks, each with a space in front.
+// whether the column was added or rewritten. Rows named by `values` are created when absent, so
+// their decided values are never withheld by a changed table layout.
 DEFINE_PATCH_FUNCTION cbpr_add_race_column
   STR_VAR label = ~~
           base = ~~
@@ -242,6 +319,9 @@ BEGIN
   SET taken = 0
   SPRINT missing ~~
   LPF cbpr_parse_values STR_VAR values RET keys RET_ARRAY cbprc_v = map END
+  PATCH_PHP_EACH cbprc_v AS key => value BEGIN
+    LPF cbpr_add_table_row STR_VAR label = EVAL ~%key%~ END
+  END
   LPF cbpr_text_lines RET nlines RET_ARRAY cbprc_s = starts cbprc_e = ends END
   PATCH_IF (nlines >= 3) BEGIN
     LPF cbpr_line_word INT_VAR from = $cbprc_s(~1~) to = $cbprc_e(~1~) RET default = word END
@@ -249,16 +329,18 @@ BEGIN
     SET he = $cbprc_e(~2~)
     LPF cbpr_line_word INT_VAR from = hs to = he RET ncols = words END
     SET bcol = 0 - 1
+    SET tcol = 0 - 1
     FOR (c = 0; c < ncols; ++c) BEGIN
       LPF cbpr_line_word INT_VAR from = hs to = he k = c RET head = word END
       PATCH_IF (~%head%~ STRING_EQUAL_CASE ~%label%~) BEGIN
         SET taken = 1
+        SET tcol = c
       END
       PATCH_IF (bcol < 0) AND (~%head%~ STRING_EQUAL_CASE ~%base%~) BEGIN
         SET bcol = c
       END
     END
-    PATCH_IF (NOT taken) AND (ncols > 0) BEGIN
+    PATCH_IF (ncols > 0) BEGIN
       // From the last line up, so the offsets of the lines above stay valid.
       FOR (i = nlines - 1; i >= 3; i = i - 1) BEGIN
         SET s = $cbprc_s(~%i%~)
@@ -268,13 +350,33 @@ BEGIN
           TO_UPPER row
           PATCH_IF (VARIABLE_IS_SET EVAL ~cbprc_v_%row%~) BEGIN
             SPRINT v $cbprc_v(~%row%~)
-            SET $cbprc_used(~%row%~) = 1
           END ELSE PATCH_IF (bcol >= 0) AND (bcol + 1 < n) BEGIN
             LPF cbpr_line_word INT_VAR from = s to = e k = bcol + 1 RET v = word END
           END ELSE BEGIN
             SPRINT v ~%default%~
           END
-          PATCH_IF (n > ncols + 1) BEGIN
+          PATCH_IF taken BEGIN
+            // The owned column exists: replace its cell, retaining every other cell.
+            LPF cbpr_line_word INT_VAR from = s to = e k = 0 RET old = word END
+            SPRINT line ~%old%~
+            FOR (m = 0; m < ncols; ++m) BEGIN
+              LPF cbpr_line_word INT_VAR from = hs to = he k = m RET head = word END
+              PATCH_IF (m = tcol) BEGIN
+                SPRINT cell ~%v%~
+              END ELSE BEGIN
+                LPF cbpr_line_word INT_VAR from = s to = e k = m + 1 RET cell = word words = words END
+                PATCH_IF (m + 1 >= words) BEGIN SPRINT cell ~%default%~ END
+              END
+              SPRINT line ~%line%  %cell%~
+            END
+            FOR (m = ncols + 1; m < n; ++m) BEGIN
+              LPF cbpr_line_word INT_VAR from = s to = e k = m RET cell = word END
+              SPRINT line ~%line%  %cell%~
+            END
+            DELETE_BYTES s (e - s)
+            INSERT_BYTES s (STRING_LENGTH ~%line%~)
+            WRITE_ASCIIE s ~%line%~
+          END ELSE PATCH_IF (n > ncols + 1) BEGIN
             LPF cbpr_line_word INT_VAR from = s to = e k = ncols RET at = wend END
             SPRINT ins ~  %v%~
           END ELSE BEGIN
@@ -285,21 +387,18 @@ BEGIN
             END
             SPRINT ins ~%ins%  %v%~
           END
-          INSERT_BYTES at (STRING_LENGTH ~%ins%~)
-          WRITE_ASCIIE at ~%ins%~
+          PATCH_IF NOT taken BEGIN
+            INSERT_BYTES at (STRING_LENGTH ~%ins%~)
+            WRITE_ASCIIE at ~%ins%~
+          END
         END
       END
-      SPRINT ins ~  %label%~
-      INSERT_BYTES he (STRING_LENGTH ~%ins%~)
-      WRITE_ASCIIE he ~%ins%~
-      SET added = 1
-      INNER_PATCH ~%keys%~ BEGIN
-        REPLACE_EVALUATE ~[^ ]+~ BEGIN
-          PATCH_IF NOT VARIABLE_IS_SET EVAL ~cbprc_used_%MATCH0%~ BEGIN
-            SPRINT missing ~%missing% %MATCH0%~
-          END
-        END ~%MATCH0%~
+      PATCH_IF NOT taken BEGIN
+        SPRINT ins ~  %label%~
+        INSERT_BYTES he (STRING_LENGTH ~%ins%~)
+        WRITE_ASCIIE he ~%ins%~
       END
+      SET added = 1
     END
   END
 END
@@ -488,13 +587,42 @@ BEGIN
     END ~%MATCH0%~
 END
 
+// Remove non-owned rows that claim `id` from the hook table in the buffer. Work backwards so a
+// changed registration cannot leave a second race pointing at the same engine race ID.
+DEFINE_PATCH_FUNCTION cbpr_remove_race_id
+  INT_VAR id = 0
+  STR_VAR label = ~~
+BEGIN
+  LPF cbpr_text_lines RET nlines RET_ARRAY cbprx_s = starts cbprx_e = ends END
+  SET col = 0 - 1
+  PATCH_IF (nlines >= 3) BEGIN
+    LPF cbpr_line_word INT_VAR from = $cbprx_s(~2~) to = $cbprx_e(~2~) RET ncols = words END
+    FOR (c = 0; c < ncols; ++c) BEGIN
+      LPF cbpr_line_word INT_VAR from = $cbprx_s(~2~) to = $cbprx_e(~2~) k = c RET head = word END
+      PATCH_IF (~%head%~ STRING_EQUAL_CASE ~ID~) BEGIN SET col = c END
+    END
+    PATCH_IF (col >= 0) BEGIN
+      FOR (i = nlines - 1; i >= 3; i = i - 1) BEGIN
+        LPF cbpr_line_word INT_VAR from = $cbprx_s(~%i%~) to = $cbprx_e(~%i%~) RET row = word END
+        LPF cbpr_line_word INT_VAR from = $cbprx_s(~%i%~) to = $cbprx_e(~%i%~) k = col + 1 RET rid = word END
+        PATCH_IF NOT (~%row%~ STRING_EQUAL_CASE ~%label%~) AND (IS_AN_INT ~%rid%~) AND (rid = id) BEGIN
+          SET at = $cbprx_s(~%i%~)
+          SET j = i + 1
+          SET to = (j < nlines) ? $cbprx_s(~%j%~) : BUFFER_LENGTH
+          DELETE_BYTES at (to - at)
+        END
+      END
+    END
+  END
+END
+
 // Race `id` gets the label `label` through the hook: a row in CBPRRACE.2DA with the race's
 // biography `bio` (a string reference, -1 for none; EET's character creation takes the race part of
 // the biography from a Lua table, bioRaceData, and the hook adds the race there), and the hook's
-// files from `folder`. `error`: 0 when done, else nothing was changed and it tells why: 1 the race cannot have a
-// label of its own (only races 8-255 can, and 153 not: the engine gives it the elf's), 2 the label
-// is not a word of capital letters, digits and _, 3 CBPRRACE.2DA gives the race or the label to
-// another race already, 4 CBPRRACE.2DA has no ID column.
+// files from `folder`. `error`: 0 when done, else 1 the race cannot have a label of its own (only
+// races 8-255 can, and 153 not: the engine gives it the elf's), or 2 the label is not a word of
+// capital letters, digits and _. Existing hook rows and an absent ID column are normalized to this
+// mod's registration instead of rejecting the installation.
 DEFINE_ACTION_FUNCTION cbpr_register_race
   INT_VAR id = 0
           bio = 0 - 1
@@ -513,6 +641,7 @@ BEGIN
     OUTER_SET error = 2
   END ELSE ACTION_IF FILE_EXISTS_IN_GAME ~cbprrace.2da~ BEGIN
     COPY_EXISTING - ~cbprrace.2da~ ~override~
+      LPF cbpr_add_table_column STR_VAR column = ~ID~ END
       LPF cbpr_text_lines RET nlines RET_ARRAY cbprg_s = starts cbprg_e = ends END
       SET col = 0 - 1
       PATCH_IF (nlines >= 3) BEGIN
@@ -524,21 +653,6 @@ BEGIN
           END
         END
       END
-      PATCH_IF (col < 0) BEGIN
-        SET error = 4
-      END
-      FOR (i = 3; (error = 0) AND (i < nlines); ++i) BEGIN
-        LPF cbpr_line_word INT_VAR from = $cbprg_s(~%i%~) to = $cbprg_e(~%i%~) RET row = word END
-        LPF cbpr_line_word INT_VAR from = $cbprg_s(~%i%~) to = $cbprg_e(~%i%~) k = col + 1 RET rid = word END
-        SET same_label = (~%row%~ STRING_EQUAL_CASE ~%label%~)
-        SET same_id = 0
-        PATCH_IF (IS_AN_INT ~%rid%~) BEGIN
-          SET same_id = (rid = id)
-        END
-        PATCH_IF (same_label OR same_id) AND NOT (same_label AND same_id) BEGIN
-          SET error = 3
-        END
-      END
   END
   ACTION_IF (error = 0) BEGIN
     ACTION_IF NOT FILE_EXISTS_IN_GAME ~cbprrace.2da~ BEGIN
@@ -546,6 +660,7 @@ BEGIN
     END
     COPY_EXISTING ~cbprrace.2da~ ~override~
       LPF cbpr_add_race_row STR_VAR label values = EVAL ~ID=%id% BIOGRAPHY=%bio%~ RET added END
+      LPF cbpr_remove_race_id INT_VAR id STR_VAR label END
     BUT_ONLY
     MKDIR ~EEex_scripts/extra_pattern_dbs~
     COPY ~%folder%/CBPRRACE.db~ ~EEex_scripts/extra_pattern_dbs/CBPRRACE.db~

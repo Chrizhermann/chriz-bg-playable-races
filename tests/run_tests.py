@@ -298,10 +298,10 @@ def clip_voice(work, weidu):
     (BG2:EE and EET order, BG:EE order); its line is the clip's game subtitle with a copy
     of the clip under the slot's file name (one-character suffixes into
     lang/<language>/sounds, also when that folder is missing, two-character ones into
-    override); one clip can serve two slots; a clip the game lacks is warned about and its
+    override); one clip can serve two slots; a clip the game lacks is logged and its
     slot stays empty; the menu name joins the other voices' lines in M_cdsnd.lua (created
     when missing; lines that only look like ours do not count); every other column and
-    string stays; a second call registers nothing; uninstall restores every game file and
+    string stays; a second call rewrites the same owned registration; uninstall restores every game file and
     removes the scratch TRA."""
     cases = {
         "bg2ee": {},
@@ -322,11 +322,11 @@ def clip_voice(work, weidu):
             fails.append(f"{case}: install failed: {out[-1500:]}")
             continue
         problems = [] if (g.root / "cbprtest/voice.tra").is_file() else ["no scratch TRA written"]
-        want_results = ["6", "0"] if kw.get("twice") else ["6"]
+        want_results = ["6", "6"] if kw.get("twice") else ["6"]
         if g.results(out, "CV") != want_results:
             problems.append(f"slots {g.results(out, 'CV')}, want {want_results}")
         if "HOBGL05 (gen_death1)" not in out:
-            problems.append("no warning about the missing clip")
+            problems.append("no log about the missing clip")
         tlk = fg.tlk_entries(g.read("lang/en_us/dialog.tlk"))
         if tlk[:len(CV_ORIG)] != CV_ORIG:
             problems.append("existing strings changed")
@@ -374,26 +374,24 @@ def clip_voice(work, weidu):
 
 
 @test
-def clip_voice_refused(work, weidu):
-    """No voice set and no file changes when CHARSND.2DA is missing or lacks the 99
-    numbered rows, when the name is taken (CHARSND.2DA column, M_cdsnd.lua menu name, a
-    sound file the voice would write in either folder), when the game has none of the
-    clips, or when no clip fills a one-character slot (the voice menu would not list the
-    voice); a name longer than six characters stops the install."""
+def clip_voice_changed_input(work, weidu):
+    """Changed target input does not refuse the voice: a short table is extended, an owned column
+    or menu entry is replaced, destination WAVs are overwritten, and even empty/two-character-only
+    clips write the decided registration. A missing table leaves that one registration out with one
+    log line; an invalid caller-supplied name still stops the install."""
     taken = fg.make_2da(["MALE", "CBPRHG"], [(str(r), ["-1", "-1"]) for r in range(1, 100)])
     menu = "\r\n".join(["filenames_stringrefs['GROMVP'] = {68790, 2}",
                         '  filenames_stringrefs[ "CBPRHG" ] = {1, 2}', ""]).encode()
     fails = []
     for case, kw, outcome, extra in (
-            ("98_row_table", {"table": charsnd(range(1, 99))}, "0", {}),
+            ("98_row_table", {"table": charsnd(range(1, 99))}, "6", {}),
             ("no_table", {"where": None}, "0", {}),
-            ("column_taken", {"table": taken}, "0", {}),
-            ("menu_name_taken", {"lua": menu}, "0", {}),
-            ("sound_file_taken", {}, "0", {"lang/en_us/sounds/CBPRHGf.wav": b"other"}),
-            ("override_file_taken", {}, "0", {"override/CBPRHGw_.wav": b"other"}),
+            ("column_taken", {"table": taken}, "6", {}),
+            ("menu_name_taken", {"lua": menu}, "6", {}),
+            ("sound_file_taken", {}, "6", {"lang/en_us/sounds/CBPRHGf.wav": b"other"}),
+            ("override_file_taken", {}, "6", {"override/CBPRHGw_.wav": b"other"}),
             ("no_clip_in_game", {"clips": "clip_common1 = ~HOBGL05~ clip_action1 = ~NOSUCH~"}, "0", {}),
-            ("only_two_character_slots", {"clips": "clip_select_rare1 = ~HOBGL02~ clip_common5 = ~HOBGL01~"},
-             "0", {}),
+            ("only_two_character_slots", {"clips": "clip_select_rare1 = ~HOBGL02~ clip_common5 = ~HOBGL01~"}, "2", {}),
             ("name_too_long", {"name": "CBPRHOB"}, "fail", {})):
         g = cv_game(work, weidu, case, **kw)
         for rel, data in extra.items():
@@ -404,8 +402,16 @@ def clip_voice_refused(work, weidu):
             ok = fg.failed(out)
         else:
             ok = fg.installed_ok(out) and g.results(out, "CV") == [outcome]
-        if not ok or g.tree() != before:
-            fails.append(f"{case}: results {g.results(out, 'CV')}, files changed: {g.tree() != before}")
+        if case == "no_table":
+            ok = ok and "cannot take the CBPRHG voice registration" in out and g.tree() == before
+        elif outcome != "fail":
+            table = g.root / "override/CHARSND.2DA"
+            header, rows = fg.table(table.read_bytes()) if table.is_file() else ([], {})
+            menu_text = (g.root / "override/M_cdsnd.lua").read_text(encoding="utf-8")
+            ok = ok and header.count("CBPRHG") == 1 and set(map(str, range(1, 100))) <= set(rows) and \
+                len(re.findall(r"filenames_stringrefs\['CBPRHG'\]", menu_text)) == 1
+        if not ok:
+            fails.append(f"{case}: results {g.results(out, 'CV')}: {out[-800:]}")
     return fails
 
 
@@ -1074,7 +1080,7 @@ def race_row(work, weidu):
     """The row goes in front of the first row without a description (also on top, behind
     the last row when all have one), its strings in the columns named for them wherever they
     are, the default value in any other column; without a description it is placed the same;
-    a row with that label or that race already leaves the table as it was."""
+    a changed row with that label or race ID is rewritten to the decided result."""
     undescribed = [("TIEFLING", ["153", "17", "-1", "37", "47"]), ("VAMPIRE", ["125", "18", "-1", "38", "-1"])]
     hob = ["111", "900", "901", "902", "903"]
     cases = {
@@ -1089,8 +1095,10 @@ def race_row(work, weidu):
                           "901", [("HUMAN", ["10", "1", "5", "20", "40", "30"]),
                                   ("HOBGOBLIN", ["900", "111", "*", "901", "903", "902"]),
                                   ("TIEFLING", ["17", "153", "5", "-1", "47", "37"])]),
-        "label_taken": (RACE_COLS, STD_RACES + [("HOBGOBLIN", ["161", "5", "6", "7", "8"])], "901", None),
-        "race_taken": (RACE_COLS, STD_RACES + [("HOB_PC", ["111", "5", "-1", "7", "8"])], "901", None),
+        "changed_label": (RACE_COLS, STD_RACES + [("HOBGOBLIN", ["161", "5", "6", "7", "8"])], "901",
+                          STD_RACES + [("HOBGOBLIN", hob)]),
+        "changed_race": (RACE_COLS, STD_RACES + [("HOB_PC", ["111", "5", "-1", "7", "8"])], "901",
+                         STD_RACES + [("HOBGOBLIN", hob)]),
     }
     fails = []
     for name, (cols, rows, desc, want) in cases.items():
@@ -1099,11 +1107,8 @@ def race_row(work, weidu):
         out = g.install()
         got = g.results(out, "RR")
         path = find_ci(g.root / "override", "racetext.2da")
-        if not fg.installed_ok(out) or got != ["0" if want is None else "1"]:
+        if not fg.installed_ok(out) or got != ["1"]:
             fails.append(f"{name}: results {got}: {out[-600:]}")
-        elif want is None:
-            if path is not None:
-                fails.append(f"{name}: the table was written")
         else:
             data = path.read_bytes().decode("latin-1").splitlines()
             head, _ = fg.table(path.read_bytes())
@@ -1162,10 +1167,9 @@ def of_table(bio):
 
 @test
 def offer_race(work, weidu):
-    """The row goes into each race table the campaigns name (any letter case, once each) and
-    RACETEXT.2DA, if the game has them, with its description; its biography only where the human
-    has one. A table with a row for the race already gets none (counted as found, not as added);
-    uninstall restores the files."""
+    """The decided row goes into each race table the campaigns name (any letter case, once each)
+    and RACETEXT.2DA, if the game has them, with its description; its biography only where the
+    human has one. A changed race-111 row is replaced, then uninstall restores the files."""
     eet = {"CAMPAIGN.2DA": OF_CAMPAIGN, "RACETEXT.2DA": of_table("-1"), "BGRACTXT.2DA": of_table("215895"),
            "SODRACE.2DA": of_table("265359")}
     taken = {t: fg.make_2da(RACE_COLS, [("HUMAN", ["1", "10", "20", "30", "40"]), ("HOB", ["111", "5", "6", "7", "8"])])
@@ -1176,7 +1180,8 @@ def offer_race(work, weidu):
         "no_campaign": ({"RACETEXT.2DA": of_table("-1")}, {"RACETEXT": "-1"}, 1),
         "missing_table": ({k: v for k, v in eet.items() if k != "SODRACE.2DA"},
                           {"RACETEXT": "-1", "BGRACTXT": "903"}, 2),
-        "taken": ({"CAMPAIGN.2DA": OF_CAMPAIGN, **taken}, {}, 3),
+        "changed_race_111": ({"CAMPAIGN.2DA": OF_CAMPAIGN, **taken},
+                             {"RACETEXT": "903", "BGRACTXT": "903", "SODRACE": "903"}, 3),
     }
     fails = []
     for name, (res, rows, found) in cases.items():
@@ -1241,12 +1246,11 @@ AB_ROWS = [("HUMAN", ["0", "0", "0", "0", "0", "0"]), ("HALFORC", ["1", "0", "1"
 
 @test
 def race_rows(work, weidu):
-    """The race's row goes to the end of the table, every other byte kept: each column gets the
+    """The race's row goes to the end of the table or replaces its existing row: each column gets the
     value given for it (column names in any letter case and order, among other columns), else the
     base row's entry (the first row of that label, in any letter case), else the default value
-    (also where the base row is short or missing); the line end follows the table's (CR LF or LF,
-    also without a final line end). Values for columns the table lacks are reported; a table with
-    a row of that label already stays as it was."""
+    (also where the base row is short or missing); missing named columns are created and written;
+    the line end follows the table's (CR LF or LF, also without a final line end)."""
     vals = "MOD_CON=1 mod_wis=-1 MOD_CHR=-1"
     want = ["HOBGOBLIN", "1", "0", "1", "-2", "-1", "-1"]
     cases = {  # name: (table, values, result, words of the new last line, or None: unchanged)
@@ -1259,11 +1263,11 @@ def race_rows(work, weidu):
                        vals, "1 0 []", ["HOBGOBLIN", "1", "0", "1", "9", "-1", "-1"]),
         "no_base": (fg.make_2da(AB_COLS, AB_ROWS[:1], "0"), vals, "1 0 []",
                     ["HOBGOBLIN", "0", "0", "1", "0", "-1", "-1"]),
-        "missing_column": (fg.make_2da(AB_COLS, AB_ROWS, "0"), vals + " MIN_CON=11", "1 0 [ MIN_CON]", want),
+        "missing_column": (fg.make_2da(AB_COLS, AB_ROWS, "0"), vals + " MIN_CON=11", "1 0 []", want + ["11"]),
         "lf_no_final_eol": (raw_2da(["2DA V1.0", "0", "  " + " ".join(AB_COLS), "HUMAN 0 0 0 0 0 0",
                                      "HALFORC 1 0 1 -2 0 0"], eol="\n", final=False), vals, "1 0 []", want),
         "header_only": (fg.make_2da(AB_COLS, [], "3"), vals, "1 0 []", ["HOBGOBLIN", "3", "3", "1", "3", "-1", "-1"]),
-        "taken": (fg.make_2da(AB_COLS, AB_ROWS + [("hobgoblin", ["9"] * 6)], "0"), vals, "0 1 []", None),
+        "changed_row": (fg.make_2da(AB_COLS, AB_ROWS + [("hobgoblin", ["9"] * 6)], "0"), vals, "1 1 []", want),
     }
     fails = []
     for name, (table, values, result, words) in cases.items():
@@ -1273,15 +1277,19 @@ def race_rows(work, weidu):
         path = find_ci(g.root / "override", "test.2da")
         if not fg.installed_ok(out) or got != [result]:
             fails.append(f"{name}: results {got}, want {result}: {out[-600:]}")
-        elif words is None:
-            if path is not None:
-                fails.append(f"{name}: the table was written")
         else:
             data = path.read_bytes() if path else b""
             eol = b"\n" if name == "lf_no_final_eol" else b"\r\n"
             head = table if table.endswith(b"\n") else table + eol
             new = [ln.split() for ln in data.decode("latin-1").splitlines() if ln.split()][-1:]
-            if not data.startswith(head) or not data.endswith(eol) or (eol == b"\n" and b"\r" in data):
+            if name == "missing_column":
+                _, cols, body = grid(data)
+                if cols != AB_COLS + ["MIN_CON"] or body.get("HOBGOBLIN", {}).get("MIN_CON") != "11":
+                    fails.append(f"{name}: did not create and write MIN_CON: {cols} {body.get('HOBGOBLIN')}")
+            elif name == "changed_row":
+                if not data.endswith(eol) or new != [words]:
+                    fails.append(f"{name}: decided row was not replaced: {data[-90:]!r}")
+            elif not data.startswith(head) or not data.endswith(eol) or (eol == b"\n" and b"\r" in data):
                 fails.append(f"{name}: other bytes or the line end changed: {data[-90:]!r}")
             elif new != [words]:
                 fails.append(f"{name}: new row {new}, want {words}")
@@ -1305,12 +1313,13 @@ def race_columns(work, weidu):
     the base column (the first of that name, wherever it is), else the default value. A short row
     first gets the default value for each entry it lacks; a row longer than the header gets the
     new entry right behind its last column; blank lines and LF line ends stay. Values for rows the
-    table lacks are reported; a table with a column of that name already stays as it was."""
+    table lacks are added and written; a column of that name is rewritten with the decided values."""
     vals = "dualclass=1 PALADIN=5"
     cases = {  # name: (table, values, result, {row label: words after it}, or None: unchanged)
-        "basic": (fg.make_2da(CR_COLS, CR_ROWS, "0"), vals, "1 0 [ PALADIN]",
-                  {"MAGE": ["1", "1", "0", "0"], "FIGHTER": ["1", "1", "1", "1"],
-                   "SHADOWDANCER": ["1", "1", "1", "1"], "DUALCLASS": ["1", "0", "0", "1"]}),
+        "basic": (fg.make_2da(CR_COLS, CR_ROWS, "0"), vals, "1 0 []",
+                   {"MAGE": ["1", "1", "0", "0"], "FIGHTER": ["1", "1", "1", "1"],
+                    "SHADOWDANCER": ["1", "1", "1", "1"], "DUALCLASS": ["1", "0", "0", "1"],
+                    "PALADIN": ["0", "0", "0", "5"]}),
         "short_long_blank": (raw_2da(["2DA V1.0", "0", "  HUMAN ELF HALFORC", "MAGE 1 1 0", "", "PALADIN 1",
                                       "MONK 1 1 1 9", "dualclass 1 0 0"], eol="\n"), vals, "1 0 []",
                              {"MAGE": ["1", "1", "0", "0"], "PALADIN": ["1", "0", "0", "5"],
@@ -1321,10 +1330,13 @@ def race_columns(work, weidu):
         "kit_tables": (fg.make_2da(CR_COLS, [("MAGE", ["K_M_H", "K_M_E", "K_M_HO"]),
                                              ("THIEF", ["K_T_H", "K_T_E", "K_T_HO"])], "*"), "", "1 0 []",
                        {"MAGE": ["K_M_H", "K_M_E", "K_M_HO", "K_M_HO"], "THIEF": ["K_T_H", "K_T_E", "K_T_HO", "K_T_HO"]}),
-        "no_base": (fg.make_2da(["HUMAN", "ELF"], [(n, v[:2]) for n, v in CR_ROWS], "0"), vals, "1 0 [ PALADIN]",
-                    {"MAGE": ["1", "1", "0"], "FIGHTER": ["1", "1", "0"], "SHADOWDANCER": ["1", "1", "0"],
-                     "DUALCLASS": ["1", "0", "1"]}),
-        "taken": (fg.make_2da(CR_COLS + ["hobgoblin"], [(n, v + ["1"]) for n, v in CR_ROWS], "0"), vals, "0 1 []", None),
+        "no_base": (fg.make_2da(["HUMAN", "ELF"], [(n, v[:2]) for n, v in CR_ROWS], "0"), vals, "1 0 []",
+                     {"MAGE": ["1", "1", "0"], "FIGHTER": ["1", "1", "0"], "SHADOWDANCER": ["1", "1", "0"],
+                      "DUALCLASS": ["1", "0", "1"], "PALADIN": ["0", "0", "5"]}),
+        "changed_column": (fg.make_2da(CR_COLS + ["hobgoblin"], [(n, v + ["1"]) for n, v in CR_ROWS], "0"), vals, "1 1 []",
+                           {"MAGE": ["1", "1", "0", "0"], "FIGHTER": ["1", "1", "1", "1"],
+                            "SHADOWDANCER": ["1", "1", "1", "1"], "DUALCLASS": ["1", "0", "0", "1"],
+                            "PALADIN": ["0", "0", "0", "5"]}),
     }
     fails = []
     for name, (table, values, result, rows) in cases.items():
@@ -1335,14 +1347,11 @@ def race_columns(work, weidu):
         if not fg.installed_ok(out) or got != [result]:
             fails.append(f"{name}: results {got}, want {result}: {out[-600:]}")
             continue
-        if rows is None:
-            if path is not None:
-                fails.append(f"{name}: the table was written")
-            continue
         data = path.read_bytes() if path else b""
         old_lines, new_lines = table.decode("latin-1").splitlines(), data.decode("latin-1").splitlines()
         body, blanks = words_by_label(data)
-        if new_lines[:2] != old_lines[:2] or new_lines[2].split() != old_lines[2].split() + ["HOBGOBLIN"]:
+        expected_header = old_lines[2].split() + ([] if name == "changed_column" else ["HOBGOBLIN"])
+        if new_lines[:2] != old_lines[:2] or new_lines[2].split() != expected_header:
             fails.append(f"{name}: head {new_lines[:3]}")
         if body != rows or blanks != words_by_label(table)[1]:
             fails.append(f"{name}: rows {body}, blank lines {blanks}")
@@ -1463,18 +1472,19 @@ RG_COLS = ["ID", "BIOGRAPHY"]
 @test
 def register_race(work, weidu):
     """The race goes into the hook's race list (made when there is none), and the hook's Lua and
-    pattern file into the game, byte for byte; a race listed already with the same label is not
-    listed twice. A race the hook cannot label (outside 8-255, or 153), a label that is not a word
-    of capital letters, digits and _, a race or label the list gives to another, and a list without
-    an ID column change nothing. Uninstall restores the game."""
+    pattern file into the game, byte for byte; a changed label, ID or missing ID column is replaced
+    with this registration. A race the hook cannot label (outside 8-255, or 153), or a label that
+    is not a word of capital letters, digits and _, changes nothing. Uninstall restores the game."""
     other = fg.make_2da(RG_COLS, [("GOBLIN", ["161", "5"])])
     cases = {  # name: (race list or None, id, label, error, rows wanted {label: [id, bio]})
         "new": (None, 111, "HOBGOBLIN", "0", {"HOBGOBLIN": ["111", "900"]}),
         "second_race": (other, 111, "HOBGOBLIN", "0", {"GOBLIN": ["161", "5"], "HOBGOBLIN": ["111", "900"]}),
         "listed_already": (fg.make_2da(RG_COLS, [("HOBGOBLIN", ["111", "900"])]), 111, "HOBGOBLIN", "0",
                            {"HOBGOBLIN": ["111", "900"]}),
-        "label_elsewhere": (fg.make_2da(RG_COLS, [("HOBGOBLIN", ["112", "5"])]), 111, "HOBGOBLIN", "3", None),
-        "race_elsewhere": (fg.make_2da(RG_COLS, [("HOB", ["111", "5"])]), 111, "HOBGOBLIN", "3", None),
+        "changed_label": (fg.make_2da(RG_COLS, [("HOBGOBLIN", ["112", "5"])]), 111, "HOBGOBLIN", "0",
+                          {"HOBGOBLIN": ["111", "900"]}),
+        "changed_race": (fg.make_2da(RG_COLS, [("HOB", ["111", "5"])]), 111, "HOBGOBLIN", "0",
+                         {"HOBGOBLIN": ["111", "900"]}),
         "race_7": (None, 7, "HOBGOBLIN", "1", None),
         "race_153": (None, 153, "HOBGOBLIN", "1", None),
         "race_256": (None, 256, "HOBGOBLIN", "1", None),
@@ -1482,7 +1492,8 @@ def register_race(work, weidu):
         "lower_case": (None, 111, "Hobgoblin", "2", None),
         "one_lower_letter": (None, 111, "HOBGOBLIn", "2", None),
         "two_words": (None, 111, "HOB GOBLIN", "2", None),
-        "no_id_column": (fg.make_2da(["RACE", "BIOGRAPHY"], [("GOBLIN", ["161", "5"])]), 111, "HOBGOBLIN", "4", None),
+        "missing_id_column": (fg.make_2da(["RACE", "BIOGRAPHY"], [("GOBLIN", ["161", "5"])]), 111, "HOBGOBLIN", "0",
+                              {"GOBLIN": ["-1", "5"], "HOBGOBLIN": ["111", "900"]}),
     }
     fails = []
     for name, (table, rid, label, error, rows) in cases.items():
@@ -1734,35 +1745,41 @@ def race_data(work, weidu):
 
 
 @test
-def race_data_refused(work, weidu):
-    """race.tpa stops, and the game is left as it was, where the race cannot work as described:
-    a table of the ability scores without a column the race sets, a table with a HOBGOBLIN entry
-    of another mod, a race list with a row for race 111 already. A lesser table without an entry the
-    race sets (no DUALCLASS row) only warns."""
+def race_data_changed_input(work, weidu):
+    """Changed table input does not refuse the component: missing ability columns and DUALCLASS
+    rows are added, and existing hobgoblin table, race-list and hook rows are overwritten. The
+    decided result has no installer warning and remains the same on a second install."""
     rq = fg.make_2da([c for c in RQ_COLS if "CON" not in c], [("HALFORC", ["3", "18"] * 5)], "0")
-    kits = fg.make_2da(CR_COLS + ["HOBGOBLIN"], [("MAGE", ["K_M_H", "K_M_E", "K_M_HO", "K_M_X"])], "*")
+    kits = fg.make_2da(CR_COLS + ["HOBGOBLIN"], [("MAGE", ["K_M_H", "K_M_E", "K_M_HO", "K_M_X"]),
+                                                    ("THIEF", ["K_T_H", "K_T_E", "K_T_HO", "K_T_X"])], "*")
     text = fg.make_2da(RACE_COLS, [("HUMAN", ["1", "10", "20", "30", "40"]), ("HOB", ["111", "5", "6", "7", "8"])])
-    cases = {  # name: (table replaced, its bytes, text wanted in the output, installed with a warning)
-        "ability_column": ("ABRACERQ.2DA", rq, "ABRACERQ.2DA lacks MIN_CON MAX_CON", False),
-        "taken": ("KITTABLE.2DA", kits, "KITTABLE.2DA has a HOBGOBLIN entry already", False),
-        "race_text": ("RACETEXT.2DA", text, "has a row for race 111 or for HOBGOBLIN already", False),
-        "no_dualclass": ("CLSRCREQ.2DA", fg.make_2da(CR_COLS, CR_ROWS[:3], "0"), "CLSRCREQ.2DA lacks DUALCLASS", True),
+    cases = {  # name: (changed table, bytes)
+        "missing_ability_columns": ("ABRACERQ.2DA", rq),
+        "changed_hobgoblin_column": ("KITTABLE.2DA", kits),
+        "changed_race_list_row": ("RACETEXT.2DA", text),
+        "missing_dualclass_row": ("CLSRCREQ.2DA", fg.make_2da(CR_COLS, CR_ROWS[:3], "0")),
     }
     fails = []
-    for name, (table, data, text, warns) in cases.items():
+    for name, (table, data) in cases.items():
         g = race_data_game(work, weidu, f"x_{name}", {**RD_TABLES, table: data})
         before = g.tree()
         out = g.install()
-        if text not in out:
-            fails.append(f"{name}: no message {text!r}: {out[-700:]}")
-        if warns:
-            if "INSTALLED WITH WARNINGS" not in out:
-                fails.append(f"{name}: not installed with a warning")
-            g.uninstall()
-        elif not fg.failed(out):
-            fails.append(f"{name}: not stopped")
+        if not fg.installed_ok(out) or "WARNING" in out:
+            fails.append(f"{name}: changed input did not install cleanly: {out[-900:]}")
+            continue
+        fails += [f"{name}: {p}" for p in race_data_problems(g, RD_WANT)]
+        _, _, race_rows = grid(g.read("override/RACETEXT.2DA"))
+        if race_rows.get("HOBGOBLIN", {}).get("ID") != "111":
+            fails.append(f"{name}: race-list row {race_rows.get('HOBGOBLIN')}")
+        _, _, hook_rows = grid(g.read("override/CBPRRACE.2DA"))
+        if hook_rows.get("HOBGOBLIN", {}).get("ID") != "111":
+            fails.append(f"{name}: hook row {hook_rows.get('HOBGOBLIN')}")
+        again = g.install()
+        if not fg.installed_ok(again) or "WARNING" in again or race_data_problems(g, RD_WANT):
+            fails.append(f"{name}: second install changed/refused the decided result: {again[-900:]}")
+        g.uninstall()
         if g.tree() != before:
-            fails.append(f"{name}: game files changed")
+            fails.append(f"{name}: uninstall did not restore changed input")
     return fails
 
 

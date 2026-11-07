@@ -54,14 +54,11 @@ OUTER_SET hg_hair = $hg_col(~6~)
 OUTER_SPRINT $hg_values(~RACECOLR~) ~SKIN=%hg_skin% HAIR=%hg_hair%~
 
 // Each table: races as rows (0) or columns (1); the entries the race does not set come from base
-// (the human's thief skills, else the half-orc's). Tables marked strict stop the install when
-// they lack a column the race sets: the race would roll its ability scores without its limits.
+// (the human's thief skills, else the half-orc's). The table writer creates missing owned rows and
+// columns, then writes the hobgoblin result over altered prior data.
 ACTION_DEFINE_ASSOCIATIVE_ARRAY hg_race_table BEGIN
   ABRACEAD => 0   ABRACERQ => 0   SKILLRAC => 0   RACEFEAT => 0
   CLSRCREQ => 1   KITTABLE => 1   MGSRCREQ => 1   RACETHAC => 1   RACECOLR => 1
-END
-ACTION_DEFINE_ASSOCIATIVE_ARRAY hg_race_table_strict BEGIN
-  ABRACEAD => 1   ABRACERQ => 1
 END
 OUTER_SPRINT hg_race_done ~~
 ACTION_PHP_EACH hg_race_table AS hg_table => hg_columns BEGIN
@@ -73,16 +70,8 @@ ACTION_PHP_EACH hg_race_table AS hg_table => hg_columns BEGIN
   LAF cbpr_race_table INT_VAR columns = hg_columns
     STR_VAR table = EVAL ~%hg_table%~ label = ~HOBGOBLIN~ base = EVAL ~%hg_base%~ values = EVAL ~%hg_v%~
     RET hg_result = result hg_missing = missing END
-  OUTER_SET hg_strict = VARIABLE_IS_SET EVAL ~hg_race_table_strict_%hg_table%~
   ACTION_IF (hg_result = 3) BEGIN
-    OUTER_SPRINT hg_missing ~ its header line~
-  END
-  ACTION_IF (hg_result = 2) BEGIN
-    FAIL @28
-  END ELSE ACTION_IF (NOT (~%hg_missing%~ STRING_EQUAL ~~)) AND hg_strict BEGIN
-    FAIL @29
-  END ELSE ACTION_IF NOT (~%hg_missing%~ STRING_EQUAL ~~) BEGIN
-    WARN @30
+    PRINT ~%hg_table%.2DA has no writable header; the target table was left alone.~
   END
   ACTION_IF (hg_result = 0) BEGIN
     OUTER_SPRINT hg_race_done ~%hg_race_done% %hg_table%~
@@ -98,13 +87,13 @@ LAF hg_offer_race INT_VAR race = race_hob name_ref = RESOLVE_STR_REF (@12) desc_
   STR_VAR label = ~HOBGOBLIN~
   RET hg_text_tables = tables hg_text_found = found
 END
-ACTION_IF (hg_text_found = 0) OR (hg_text_tables < hg_text_found) BEGIN
-  FAIL @17
+ACTION_IF (hg_text_found = 0) BEGIN
+  PRINT ~No character-creation race table is present; the hobgoblin race-list row was not written.~
 END
 
 // The label, through the hook.
 LAF cbpr_register_race INT_VAR id = race_hob bio = hg_bio_ref STR_VAR label = ~HOBGOBLIN~ RET hg_register = error END
 ACTION_IF (hg_register != 0) BEGIN
-  FAIL @32
+  PRINT ~The engine cannot label race %race_hob%; the EEex hook registration was not written.~
 END
 PRINT ~Hobgoblin PC: race %race_hob% HOBGOBLIN (%hg_rules% rules) in the race tables%hg_race_done%, in %hg_text_tables% race list(s) of character creation~
